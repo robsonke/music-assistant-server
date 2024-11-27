@@ -17,10 +17,10 @@ from typing import Any, Final
 from aiorun import run
 from colorlog import ColoredFormatter
 
-from music_assistant.common.helpers.json import json_loads
+from music_assistant import MusicAssistant
 from music_assistant.constants import MASS_LOGGER_NAME, VERBOSE_LOG_LEVEL
-from music_assistant.server import MusicAssistant
-from music_assistant.server.helpers.logging import activate_log_queue_handler
+from music_assistant.helpers.json import json_loads
+from music_assistant.helpers.logging import activate_log_queue_handler
 
 FORMAT_DATE: Final = "%Y-%m-%d"
 FORMAT_TIME: Final = "%H:%M:%S"
@@ -134,7 +134,6 @@ def setup_logger(data_path: str, level: str = "DEBUG"):
 
 def _enable_posix_spawn() -> None:
     """Enable posix_spawn on Alpine Linux."""
-    # pylint: disable=protected-access
     if subprocess._USE_POSIX_SPAWN:
         return
 
@@ -214,7 +213,7 @@ def main() -> None:
     run(
         start_mass(),
         shutdown_callback=on_shutdown,
-        executor_workers=32,
+        executor_workers=16,
     )
 
 
