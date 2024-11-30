@@ -19,7 +19,6 @@ defusedxml==0.7.1
 eyeD3==0.9.7
 faust-cchardet>=2.1.18
 hass-client==1.2.0
-ibroadcastaio==0.3.0
 ifaddr==0.2.0
 mashumaro==3.14
 memory-tempfile==2.2.3
