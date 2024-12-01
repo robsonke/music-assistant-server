@@ -305,8 +305,7 @@ class IBroadcastProvider(MusicProvider):
                     provider_domain=self.domain,
                     provider_instance=self.instance_id,
                     audio_format=AudioFormat(content_type=ContentType.MPEG),
-                    url=f"https://media.ibroadcast.com/?view=container&container_id={
-                        album_id}&type=albums",
+                    url=f"https://media.ibroadcast.com/?view=container&container_id={album_id}&type=albums",
                 )
             },
         )
