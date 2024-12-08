@@ -6,18 +6,20 @@ from typing import TYPE_CHECKING
 
 from aiohttp import ClientSession
 from ibroadcastaio import IBroadcastClient
-
-from music_assistant.common.helpers.util import parse_title_and_version
-from music_assistant.common.models.config_entries import ConfigEntry, ConfigValueType
-from music_assistant.common.models.enums import ConfigEntryType, ProviderFeature, StreamType
-from music_assistant.common.models.errors import InvalidDataError, LoginFailed
-from music_assistant.common.models.media_items import (
-    Album,
+from music_assistant_models.config_entries import ConfigEntry, ConfigValueType
+from music_assistant_models.enums import (
     AlbumType,
-    Artist,
-    AudioFormat,
+    ConfigEntryType,
     ContentType,
     ImageType,
+    ProviderFeature,
+    StreamType,
+)
+from music_assistant_models.errors import InvalidDataError, LoginFailed
+from music_assistant_models.media_items import (
+    Album,
+    Artist,
+    AudioFormat,
     ItemMapping,
     MediaItemImage,
     MediaType,
@@ -25,7 +27,8 @@ from music_assistant.common.models.media_items import (
     ProviderMapping,
     Track,
 )
-from music_assistant.common.models.streamdetails import StreamDetails
+from music_assistant_models.streamdetails import StreamDetails
+
 from music_assistant.constants import (
     CONF_PASSWORD,
     CONF_USERNAME,
@@ -33,7 +36,8 @@ from music_assistant.constants import (
     VARIOUS_ARTISTS_MBID,
     VARIOUS_ARTISTS_NAME,
 )
-from music_assistant.server.models.music_provider import MusicProvider
+from music_assistant.helpers.util import parse_title_and_version
+from music_assistant.models.music_provider import MusicProvider
 
 SUPPORTED_FEATURES = (
     ProviderFeature.LIBRARY_ARTISTS,
@@ -48,10 +52,11 @@ SUPPORTED_FEATURES = (
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-    from music_assistant.common.models.config_entries import ProviderConfig
-    from music_assistant.common.models.provider import ProviderManifest
-    from music_assistant.server import MusicAssistant
-    from music_assistant.server.models import ProviderInstanceType
+    from music_assistant_models.config_entries import ProviderConfig
+
+    from music_assistant import MusicAssistant
+    from music_assistant.models import ProviderInstanceType
+    from music_assistant.models.provider import ProviderManifest
 
 
 async def setup(
