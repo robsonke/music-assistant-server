@@ -154,7 +154,6 @@ class IBroadcastProvider(MusicProvider):
             for album in (await self._client.get_albums()).values()
             if album["artist_id"] == int(prov_artist_id)
         ]
-
         albums = []
         for album in albums_objs:
             try:
@@ -224,12 +223,9 @@ class IBroadcastProvider(MusicProvider):
         tracks: list[Track] = []
         if page > 0:
             return tracks
-
         playlist_obj = await self._client.get_playlist(int(prov_playlist_id))
-
         if "tracks" not in playlist_obj:
             return tracks
-
         return await self._get_tracks(playlist_obj["tracks"], True)
 
     async def get_stream_details(self, item_id: str) -> StreamDetails:
@@ -238,20 +234,20 @@ class IBroadcastProvider(MusicProvider):
         # [streaming_server]/[url]?Expires=[now]&Signature=[user token]&file_id=[file ID]
         # &user_id=[user ID]&platform=[your app name]&version=[your app version]
         # See https://devguide.ibroadcast.com/?p=streaming-server
-
         url = await self._client.get_full_stream_url(int(item_id), "music-assistant")
 
         return StreamDetails(
             provider=self.instance_id,
             item_id=item_id,
             audio_format=AudioFormat(
-                content_type=ContentType.MPEG,
+                content_type=ContentType.UNKNOWN,
             ),
             stream_type=StreamType.HTTP,
             path=url,
         )
 
     async def _get_tracks(self, track_ids: list[int], is_playlist: bool = False) -> list[Track]:
+        """Retrieve a list of tracks based on provided track IDs."""
         tracks = []
         for index, track_id in enumerate(track_ids, 1):
             track_obj = await self._client.get_track(track_id)
@@ -260,7 +256,6 @@ class IBroadcastProvider(MusicProvider):
                 if is_playlist:
                     track.position = index
                 tracks.append(track)
-
         return tracks
 
     async def _parse_artist(self, artist_obj: dict) -> Artist:
@@ -279,7 +274,6 @@ class IBroadcastProvider(MusicProvider):
                 )
             },
         )
-
         # Artwork
         if "artwork_id" in artist_obj:
             artist.metadata.images = [
@@ -290,14 +284,12 @@ class IBroadcastProvider(MusicProvider):
                     remotely_accessible=True,
                 )
             ]
-
         return artist
 
     async def _parse_album(self, album_obj: dict) -> Album:
         """Parse ibroadcast album object to generic layout."""
         album_id = album_obj["album_id"]
         name, version = parse_title_and_version(album_obj["name"])
-
         album = Album(
             item_id=album_id,
             provider=self.domain,
@@ -314,7 +306,6 @@ class IBroadcastProvider(MusicProvider):
                 )
             },
         )
-
         artist = None
         if album_obj["artist_id"] == 0:
             artist = Artist(
@@ -329,7 +320,6 @@ class IBroadcastProvider(MusicProvider):
                     )
                 },
             )
-
         else:
             artist = self._get_item_mapping(
                 MediaType.ARTIST,
@@ -338,21 +328,16 @@ class IBroadcastProvider(MusicProvider):
                 if await self._client.get_artist(album_obj["artist_id"])
                 else UNKNOWN_ARTIST,
             )
-
         album.artists.append(artist)
 
         if "rating" in album_obj and album_obj["rating"] == 5:
             album.favorite = True
-
         # iBroadcast doesn't seem to know album type
         album.album_type = AlbumType.UNKNOWN
-
         # There is only an artwork in the tracks, lets get the first track one
         artwork_url = await self._client.get_album_artwork_url(album_id)
-
         if artwork_url:
             album.metadata.images = [self._get_artwork_object(artwork_url)]
-
         return album
 
     def _get_artwork_object(self, url: str) -> MediaItemImage:
@@ -381,27 +366,22 @@ class IBroadcastProvider(MusicProvider):
                 )
             },
         )
-
         if "rating" in track_obj and track_obj["rating"] == 5:
             track.favorite = True
-
         if "length" in track_obj and str(track_obj["length"]).isdigit():
             track.duration = track_obj["length"]
-
         # track number looks like 201, meaning, disc 2, track 1
         if track_obj["track"] > 99:
             track.disc_number = int(str(track_obj["track"])[:1])
             track.track_number = int(str(track_obj["track"])[1:])
         else:
             track.track_number = int(track_obj["track"])
-
         # Track artists
         if "artist_id" in track_obj:
             artist_id = track_obj["artist_id"]
             track.artists = [
                 self._get_artist_item_mapping(artist_id, await self._client.get_artist(artist_id))
             ]
-
             # additional artists structure: 'artists_additional': [[artist id, phrase, type]]
             track.artists.extend(
                 [
@@ -412,7 +392,6 @@ class IBroadcastProvider(MusicProvider):
                     if additional_artist[0]
                 ]
             )
-
             # guard that track has valid artists
             if not track.artists:
                 msg = "Track is missing artists"
@@ -424,7 +403,6 @@ class IBroadcastProvider(MusicProvider):
                 await self._client.get_track_artwork_url(track_obj["track_id"])
             )
         ]
-
         # Genre
         genres = []
         if track_obj["genre"]:
@@ -432,14 +410,12 @@ class IBroadcastProvider(MusicProvider):
         if track_obj["genres_additional"]:
             genres.extend(track_obj["genres_additional"])
         track.metadata.genres = genres
-
         if track_obj["album_id"]:
             album = await self._client.get_album(track_obj["album_id"])
             if album:
                 track.album = self._get_item_mapping(
                     MediaType.ALBUM, track_obj["album_id"], album["name"]
                 )
-
         return track
 
     async def _parse_playlist(self, playlist_obj: dict) -> Playlist:
@@ -462,8 +438,6 @@ class IBroadcastProvider(MusicProvider):
         playlist.metadata.images = [
             self._get_artwork_object(await self._client.get_playlist_artwork_url(int(playlist_id)))
         ]
-
         if "description" in playlist_obj:
             playlist.metadata.description = playlist_obj["description"]
-
         return playlist
