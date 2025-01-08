@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from music_assistant_models.config_entries import ConfigEntry, ConfigValueType
 from music_assistant_models.enums import (
@@ -46,7 +45,7 @@ SUPPORTED_FEATURES = {
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Callable
+    from collections.abc import AsyncGenerator
 
     from music_assistant_models.config_entries import ProviderConfig
     from music_assistant_models.provider import ProviderManifest
@@ -98,14 +97,9 @@ async def get_config_entries(
 class SoundcloudMusicProvider(MusicProvider):
     """Provider for Soundcloud."""
 
-    _headers = None
-    _context = None
-    _cookies = None
-    _signature_timestamp = 0
-    _cipher = None
-    _user_id = None
-    _soundcloud = None
-    _me = None
+    _user_id: str = ""
+    _soundcloud: SoundcloudAsyncAPI = None
+    _me: dict[str, Any] = {}
 
     async def handle_async_init(self) -> None:
         """Set up the Soundcloud provider."""
@@ -121,12 +115,8 @@ class SoundcloudMusicProvider(MusicProvider):
         """Return the features supported by this Provider."""
         return SUPPORTED_FEATURES
 
-    @classmethod
-    async def _run_async(cls, call: Callable, *args, **kwargs):  # noqa: ANN206
-        return await asyncio.to_thread(call, *args, **kwargs)
-
     async def search(
-        self, search_query: str, media_types=list[MediaType], limit: int = 10
+        self, search_query: str, media_types: list[MediaType], limit: int = 10
     ) -> SearchResults:
         """Perform search on musicprovider.
 
@@ -233,27 +223,27 @@ class SoundcloudMusicProvider(MusicProvider):
             round(time.time() - time_start, 2),
         )
 
-    async def get_artist(self, prov_artist_id) -> Artist:
+    async def get_artist(self, prov_artist_id: str) -> Artist:
         """Get full artist details by id."""
-        artist_obj = await self._soundcloud.get_user_details(user_id=prov_artist_id)
+        artist_obj = await self._soundcloud.get_user_details(prov_artist_id)
         try:
-            artist = await self._parse_artist(artist_obj=artist_obj) if artist_obj else None
+            artist = await self._parse_artist(artist_obj) if artist_obj else None
         except (KeyError, TypeError, InvalidDataError, IndexError) as error:
             self.logger.debug("Parse artist failed: %s", artist_obj, exc_info=error)
         return artist
 
-    async def get_track(self, prov_track_id) -> Track:
+    async def get_track(self, prov_track_id: str) -> Track:
         """Get full track details by id."""
-        track_obj = await self._soundcloud.get_track_details(track_id=prov_track_id)
+        track_obj = await self._soundcloud.get_track_details(prov_track_id)
         try:
             track = await self._parse_track(track_obj[0])
         except (KeyError, TypeError, InvalidDataError, IndexError) as error:
             self.logger.debug("Parse track failed: %s", track_obj, exc_info=error)
         return track
 
-    async def get_playlist(self, prov_playlist_id) -> Playlist:
+    async def get_playlist(self, prov_playlist_id: str) -> Playlist:
         """Get full playlist details by id."""
-        playlist_obj = await self._soundcloud.get_playlist_details(playlist_id=prov_playlist_id)
+        playlist_obj = await self._soundcloud.get_playlist_details(prov_playlist_id)
         try:
             playlist = await self._parse_playlist(playlist_obj)
         except (KeyError, TypeError, InvalidDataError, IndexError) as error:
@@ -266,7 +256,7 @@ class SoundcloudMusicProvider(MusicProvider):
         if page > 0:
             # TODO: soundcloud doesn't seem to support paging for playlist tracks ?!
             return result
-        playlist_obj = await self._soundcloud.get_playlist_details(playlist_id=prov_playlist_id)
+        playlist_obj = await self._soundcloud.get_playlist_details(prov_playlist_id)
         if "tracks" not in playlist_obj:
             return result
         for index, item in enumerate(playlist_obj["tracks"], 1):
@@ -280,11 +270,9 @@ class SoundcloudMusicProvider(MusicProvider):
                 continue
         return result
 
-    async def get_artist_toptracks(self, prov_artist_id) -> list[Track]:
+    async def get_artist_toptracks(self, prov_artist_id: str) -> list[Track]:
         """Get a list of 25 most popular tracks for the given artist."""
-        tracks_obj = await self._soundcloud.get_popular_tracks_user(
-            user_id=prov_artist_id, limit=25
-        )
+        tracks_obj = await self._soundcloud.get_popular_tracks_user(prov_artist_id, 25)
         tracks = []
         for item in tracks_obj["collection"]:
             song = await self._soundcloud.get_track_details(item["id"])
@@ -296,9 +284,9 @@ class SoundcloudMusicProvider(MusicProvider):
                 continue
         return tracks
 
-    async def get_similar_tracks(self, prov_track_id, limit=25) -> list[Track]:
+    async def get_similar_tracks(self, prov_track_id: str, limit: int = 25) -> list[Track]:
         """Retrieve a dynamic list of tracks based on the provided item."""
-        tracks_obj = await self._soundcloud.get_recommended(track_id=prov_track_id, limit=limit)
+        tracks_obj = await self._soundcloud.get_recommended(prov_track_id, limit)
         tracks = []
         for item in tracks_obj["collection"]:
             song = await self._soundcloud.get_track_details(item["id"])
