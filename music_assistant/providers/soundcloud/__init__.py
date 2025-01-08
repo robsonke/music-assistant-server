@@ -215,14 +215,17 @@ class SoundcloudMusicProvider(MusicProvider):
     async def get_library_tracks(self) -> AsyncGenerator[Track, None]:
         """Retrieve library tracks from Soundcloud."""
         time_start = time.time()
-        async for item in self._soundcloud.get_tracks_liked():
-            track = await self._soundcloud.get_track_details(item)
+        async for track in self._soundcloud.get_track_details_liked(self._user_id):
             try:
-                yield await self._parse_track(track[0])
-            except IndexError:
-                continue
-            except (KeyError, TypeError, InvalidDataError) as error:
-                self.logger.debug("Parse track failed: %s", track, exc_info=error)
+                yield await self._parse_track(track)
+            except (KeyError, TypeError, InvalidDataError, IndexError) as error:
+                # somehow certain track id's don't exist (anymore)
+                self.logger.debug(
+                    "Parse track with id %s failed: %s",
+                    track["id"],
+                    track,
+                    exc_info=error,
+                )
                 continue
 
         self.logger.debug(
