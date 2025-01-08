@@ -356,7 +356,7 @@ class SoundcloudMusicProvider(MusicProvider):
         if artist_obj.get("description"):
             artist.metadata.description = artist_obj["description"]
         if artist_obj.get("avatar_url"):
-            img_url = artist_obj["avatar_url"]
+            img_url = self._transform_artwork_url(artist_obj["avatar_url"])
             artist.metadata.images = [
                 MediaItemImage(
                     type=ImageType.THUMB,
