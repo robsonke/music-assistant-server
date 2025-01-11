@@ -213,7 +213,7 @@ class SoundcloudMusicProvider(MusicProvider):
                 # somehow certain track id's don't exist (anymore)
                 self.logger.debug(
                     "%s: Parse track with id %s failed: %s",
-                    error.__name__,
+                    type(error).__name__,
                     track["id"],
                     track,
                 )
