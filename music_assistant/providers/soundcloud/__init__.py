@@ -212,10 +212,10 @@ class SoundcloudMusicProvider(MusicProvider):
             except (KeyError, TypeError, InvalidDataError, IndexError) as error:
                 # somehow certain track id's don't exist (anymore)
                 self.logger.debug(
-                    "Parse track with id %s failed: %s",
+                    "%s: Parse track with id %s failed: %s",
+                    error.__name__,
                     track["id"],
                     track,
-                    exc_info=error,
                 )
                 continue
 
