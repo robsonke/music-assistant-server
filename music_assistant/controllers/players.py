@@ -44,7 +44,7 @@ from music_assistant.constants import (
     CONF_TTS_PRE_ANNOUNCE,
 )
 from music_assistant.helpers.api import api_command
-from music_assistant.helpers.tags import parse_tags
+from music_assistant.helpers.tags import async_parse_tags
 from music_assistant.helpers.throttle_retry import Throttler
 from music_assistant.helpers.uri import parse_uri
 from music_assistant.helpers.util import TaskManager, get_changed_values
@@ -964,6 +964,20 @@ class PlayerController(CoreController):
         if len(changed_values) == 0 and not force_update:
             return
 
+        # handle DSP reload when player is grouped or ungrouped
+        prev_is_grouped = bool(prev_state.get("synced_to")) or bool(prev_state.get("group_childs"))
+        new_is_grouped = bool(new_state.get("synced_to")) or bool(new_state.get("group_childs"))
+
+        if prev_is_grouped != new_is_grouped:
+            dsp_config = self.mass.config.get_player_dsp_config(player_id)
+            supports_multi_device_dsp = PlayerFeature.MULTI_DEVICE_DSP in player.supported_features
+            if dsp_config.enabled and not supports_multi_device_dsp:
+                # We now know that that the player was grouped or ungrouped,
+                # the player has a custom DSP enabled, but the player provider does
+                # not support multi-device DSP.
+                # So we need to reload the DSP configuration.
+                self.mass.create_task(self.mass.players.on_player_dsp_change(player_id))
+
         if changed_values.keys() != {"elapsed_time"} or force_update:
             # ignore elapsed_time only changes
             self.mass.signal_event(EventType.PLAYER_UPDATED, object_id=player_id, data=player)
@@ -1309,7 +1323,7 @@ class PlayerController(CoreController):
         await self.wait_for_state(player, PlayerState.PLAYING, 10, minimal_time=0.1)
         # wait for the player to stop playing
         if not announcement.duration:
-            media_info = await parse_tags(announcement.custom_data["url"])
+            media_info = await async_parse_tags(announcement.custom_data["url"])
             announcement.duration = media_info.duration or 60
         media_info.duration += 2
         await self.wait_for_state(

@@ -10,6 +10,7 @@ from music_assistant_models.enums import (
     ConfigEntryType,
     ContentType,
     ImageType,
+    MediaType,
     ProviderFeature,
     StreamType,
 )
@@ -18,11 +19,11 @@ from music_assistant_models.media_items import (
     Artist,
     AudioFormat,
     MediaItemImage,
-    MediaType,
     Playlist,
     ProviderMapping,
     SearchResults,
     Track,
+    UniqueList,
 )
 from music_assistant_models.streamdetails import StreamDetails
 from soundcloudpy import SoundcloudAsyncAPI
@@ -50,7 +51,7 @@ if TYPE_CHECKING:
     from music_assistant_models.config_entries import ProviderConfig
     from music_assistant_models.provider import ProviderManifest
 
-    from music_assistant import MusicAssistant
+    from music_assistant.mass import MusicAssistant
     from music_assistant.models import ProviderInstanceType
 
 
@@ -144,13 +145,13 @@ class SoundcloudMusicProvider(MusicProvider):
         for item in searchresult["collection"]:
             media_type = item["kind"]
             if media_type == "user" and MediaType.ARTIST in media_types:
-                result.artists.append(await self._parse_artist(item))
+                result.artists = [*result.artists, await self._parse_artist(item)]
             elif media_type == "track" and MediaType.TRACK in media_types:
                 if item.get("duration") == item.get("full_duration"):
                     # skip if it's a preview track (e.g. in case of free accounts)
-                    result.tracks.append(await self._parse_track(item))
+                    result.tracks = [*result.tracks, await self._parse_track(item)]
             elif media_type == "playlist" and MediaType.PLAYLIST in media_types:
-                result.playlists.append(await self._parse_playlist(item))
+                result.playlists = [*result.playlists, await self._parse_playlist(item)]
 
         return result
 
@@ -227,7 +228,8 @@ class SoundcloudMusicProvider(MusicProvider):
         """Get full artist details by id."""
         artist_obj = await self._soundcloud.get_user_details(prov_artist_id)
         try:
-            artist = await self._parse_artist(artist_obj) if artist_obj else None
+            if artist_obj:
+                artist = await self._parse_artist(artist_obj)
         except (KeyError, TypeError, InvalidDataError, IndexError) as error:
             self.logger.debug("Parse artist failed: %s", artist_obj, exc_info=error)
         return artist
@@ -320,7 +322,7 @@ class SoundcloudMusicProvider(MusicProvider):
             path=url,
         )
 
-    async def _parse_artist(self, artist_obj: dict) -> Artist:
+    async def _parse_artist(self, artist_obj: dict[str, Any]) -> Artist:
         """Parse a Soundcloud user response to Artist model object."""
         artist_id = None
         permalink = artist_obj["permalink"]
@@ -347,17 +349,19 @@ class SoundcloudMusicProvider(MusicProvider):
             artist.metadata.description = artist_obj["description"]
         if artist_obj.get("avatar_url"):
             img_url = self._transform_artwork_url(artist_obj["avatar_url"])
-            artist.metadata.images = [
-                MediaItemImage(
-                    type=ImageType.THUMB,
-                    path=img_url,
-                    provider=self.lookup_key,
-                    remotely_accessible=True,
-                )
-            ]
+            artist.metadata.images = UniqueList(
+                [
+                    MediaItemImage(
+                        type=ImageType.THUMB,
+                        path=img_url,
+                        provider=self.lookup_key,
+                        remotely_accessible=True,
+                    )
+                ]
+            )
         return artist
 
-    async def _parse_playlist(self, playlist_obj: dict) -> Playlist:
+    async def _parse_playlist(self, playlist_obj: dict[str, Any]) -> Playlist:
         """Parse a Soundcloud Playlist response to a Playlist object."""
         playlist_id = str(playlist_obj["id"])
         playlist = Playlist(
@@ -376,21 +380,23 @@ class SoundcloudMusicProvider(MusicProvider):
         if playlist_obj.get("description"):
             playlist.metadata.description = playlist_obj["description"]
         if playlist_obj.get("artwork_url"):
-            playlist.metadata.images = [
-                MediaItemImage(
-                    type=ImageType.THUMB,
-                    path=self._transform_artwork_url(playlist_obj["artwork_url"]),
-                    provider=self.lookup_key,
-                    remotely_accessible=True,
-                )
-            ]
+            playlist.metadata.images = UniqueList(
+                [
+                    MediaItemImage(
+                        type=ImageType.THUMB,
+                        path=self._transform_artwork_url(playlist_obj["artwork_url"]),
+                        provider=self.lookup_key,
+                        remotely_accessible=True,
+                    )
+                ]
+            )
         if playlist_obj.get("genre"):
             playlist.metadata.genres = playlist_obj["genre"]
         if playlist_obj.get("tag_list"):
             playlist.metadata.style = playlist_obj["tag_list"]
         return playlist
 
-    async def _parse_track(self, track_obj: dict, playlist_position: int = 0) -> Track:
+    async def _parse_track(self, track_obj: dict[str, Any], playlist_position: int = 0) -> Track:
         """Parse a Soundcloud Track response to a Track model object."""
         name, version = parse_title_and_version(track_obj["title"])
         track_id = str(track_obj["id"])
@@ -420,18 +426,21 @@ class SoundcloudMusicProvider(MusicProvider):
             track.artists.append(artist)
 
         if track_obj.get("artwork_url"):
-            track.metadata.images = [
-                MediaItemImage(
-                    type=ImageType.THUMB,
-                    path=self._transform_artwork_url(track_obj["artwork_url"]),
-                    provider=self.lookup_key,
-                    remotely_accessible=True,
-                )
-            ]
+            track.metadata.images = UniqueList(
+                [
+                    MediaItemImage(
+                        type=ImageType.THUMB,
+                        path=self._transform_artwork_url(track_obj["artwork_url"]),
+                        provider=self.lookup_key,
+                        remotely_accessible=True,
+                    )
+                ]
+            )
+
         if track_obj.get("description"):
             track.metadata.description = track_obj["description"]
         if track_obj.get("genre"):
-            track.metadata.genres = [track_obj["genre"]]
+            track.metadata.genres = {track_obj["genre"]}
         if track_obj.get("tag_list"):
             track.metadata.style = track_obj["tag_list"]
         return track
