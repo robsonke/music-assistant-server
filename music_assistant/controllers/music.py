@@ -410,7 +410,9 @@ class MusicController(CoreController):
         return result
 
     @api_command("music/browse")
-    async def browse(self, path: str | None = None) -> list[MediaItemType]:
+    async def browse(
+        self, path: str | None = None, limit: int = 50, offset: int = 0
+    ) -> list[MediaItemType]:
         """Browse Music providers."""
         if not path or path == "root":
             # root level; folder per provider
@@ -433,25 +435,26 @@ class MusicController(CoreController):
         prepend_items: list[MediaItemType] = []
         provider_instance, sub_path = path.split("://", 1)
         prov = self.mass.get_provider(provider_instance)
-        # handle regular provider listing, always add back folder first
-        if not prov or not sub_path:
-            prepend_items.append(
-                BrowseFolder(item_id="root", provider="library", path="root", name="..")
-            )
-            if not prov:
-                return prepend_items
-        else:
-            back_path = f"{provider_instance}://" + "/".join(sub_path.split("/")[:-1])
-            prepend_items.append(
-                BrowseFolder(
-                    item_id="back",
-                    provider=provider_instance,
-                    path=back_path,
-                    name="..",
+        # handle regular provider listing, always add back folder first on first page
+        if offset == 0:
+            if not prov or not sub_path:
+                prepend_items.append(
+                    BrowseFolder(item_id="root", provider="library", path="root", name="..")
                 )
-            )
+                if not prov:
+                    return prepend_items
+            else:
+                back_path = f"{provider_instance}://" + "/".join(sub_path.split("/")[:-1])
+                prepend_items.append(
+                    BrowseFolder(
+                        item_id="back",
+                        provider=provider_instance,
+                        path=back_path,
+                        name="..",
+                    )
+                )
         # limit -1 to account for the prepended items
-        prov_items = await prov.browse(path=path)
+        prov_items = await prov.browse(path=path, limit=limit - 1, offset=offset)
         return prepend_items + prov_items
 
     @api_command("music/recently_played_items")
@@ -468,7 +471,10 @@ class MusicController(CoreController):
         )
         db_rows = await self.mass.music.database.get_rows_from_query(query, limit=limit)
         result: list[ItemMapping] = []
-        available_providers = ("library", *get_global_cache_value("unique_providers", []))
+        available_providers = (
+            "library",
+            *get_global_cache_value("unique_providers", []),
+        )
         for db_row in db_rows:
             result.append(
                 ItemMapping.from_dict(

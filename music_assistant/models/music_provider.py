@@ -391,10 +391,14 @@ class MusicProvider(Provider):
             return await self.get_podcast_episode(prov_item_id)
         return await self.get_track(prov_item_id)
 
-    async def browse(self, path: str) -> Sequence[MediaItemType | ItemMapping]:  # noqa: PLR0915
+    async def browse(  # noqa: PLR0915
+        self, path: str, limit: int = 50, offset: int = 0
+    ) -> Sequence[MediaItemType | ItemMapping]:
         """Browse this provider's items.
 
         :param path: The path to browse, (e.g. provider_id://artists).
+        :param limit: Number of items to return.
+        :param offset: Offset to start returning items from
         """
         if ProviderFeature.BROWSE not in self.supported_features:
             # we may NOT use the default implementation if the provider does not support browse
@@ -414,6 +418,8 @@ class MusicProvider(Provider):
             query_params = {"ids": library_items}
             return await self.mass.music.artists.library_items(
                 provider=self.instance_id,
+                limit=limit,
+                offset=offset,
                 extra_query=query,
                 extra_query_params=query_params,
             )
@@ -428,7 +434,10 @@ class MusicProvider(Provider):
             query = "albums.item_id in :ids"
             query_params = {"ids": library_items}
             return await self.mass.music.albums.library_items(
-                extra_query=query, extra_query_params=query_params
+                limit=limit,
+                offset=offset,
+                extra_query=query,
+                extra_query_params=query_params,
             )
         if subpath == "tracks":
             library_items = await self.mass.cache.get(
@@ -441,7 +450,10 @@ class MusicProvider(Provider):
             query = "tracks.item_id in :ids"
             query_params = {"ids": library_items}
             return await self.mass.music.tracks.library_items(
-                extra_query=query, extra_query_params=query_params
+                limit=limit,
+                offset=offset,
+                extra_query=query,
+                extra_query_params=query_params,
             )
         if subpath == "radios":
             library_items = await self.mass.cache.get(
@@ -454,7 +466,10 @@ class MusicProvider(Provider):
             query = "radios.item_id in :ids"
             query_params = {"ids": library_items}
             return await self.mass.music.radio.library_items(
-                extra_query=query, extra_query_params=query_params
+                limit=limit,
+                offset=offset,
+                extra_query=query,
+                extra_query_params=query_params,
             )
         if subpath == "playlists":
             library_items = await self.mass.cache.get(
@@ -467,7 +482,10 @@ class MusicProvider(Provider):
             query = "playlists.item_id in :ids"
             query_params = {"ids": library_items}
             return await self.mass.music.playlists.library_items(
-                extra_query=query, extra_query_params=query_params
+                limit=limit,
+                offset=offset,
+                extra_query=query,
+                extra_query_params=query_params,
             )
         if subpath == "audiobooks":
             library_items = await self.mass.cache.get(
@@ -480,7 +498,10 @@ class MusicProvider(Provider):
             query = "audiobooks.item_id in :ids"
             query_params = {"ids": library_items}
             return await self.mass.music.audiobooks.library_items(
-                extra_query=query, extra_query_params=query_params
+                limit=limit,
+                offset=offset,
+                extra_query=query,
+                extra_query_params=query_params,
             )
         if subpath == "podcasts":
             library_items = await self.mass.cache.get(
@@ -493,7 +514,10 @@ class MusicProvider(Provider):
             query = "podcasts.item_id in :ids"
             query_params = {"ids": library_items}
             return await self.mass.music.podcasts.library_items(
-                extra_query=query, extra_query_params=query_params
+                limit=limit,
+                offset=offset,
+                extra_query=query,
+                extra_query_params=query_params,
             )
         if subpath:
             # unknown path

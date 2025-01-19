@@ -19,6 +19,7 @@ from music_assistant_models.errors import MediaNotFoundError
 from music_assistant_models.media_items import (
     AudioFormat,
     BrowseFolder,
+    ItemMapping,
     MediaItemImage,
     MediaItemLink,
     MediaItemType,
@@ -100,7 +101,8 @@ class RadioBrowserProvider(MusicProvider):
     async def handle_async_init(self) -> None:
         """Handle async initialization of the provider."""
         self.radios = RadioBrowser(
-            session=self.mass.http_session, user_agent=f"MusicAssistant/{self.mass.version}"
+            session=self.mass.http_session,
+            user_agent=f"MusicAssistant/{self.mass.version}",
         )
         try:
             # Try to get some stats to check connection to RadioBrowser API
@@ -135,7 +137,9 @@ class RadioBrowserProvider(MusicProvider):
 
         return result
 
-    async def browse(self, path: str) -> Sequence[MediaItemType]:
+    async def browse(
+        self, path: str, limit: int = 50, offset: int = 0
+    ) -> Sequence[MediaItemType | ItemMapping]:
         """Browse this provider's items.
 
         :param path: The path to browse, (e.g. provid://artists).
@@ -170,22 +174,24 @@ class RadioBrowserProvider(MusicProvider):
                 ),
             ]
 
+        items: Sequence[Radio] | list[BrowseFolder] = []
+
         if subpath == "popular":
-            return await self.get_by_popularity()
+            items = await self.get_by_popularity()
 
         if subpath == "tag" and subsubpath:
-            return await self.get_by_tag(subsubpath)
+            items = await self.get_by_tag(subsubpath)
 
         if subpath == "tag":
-            return await self.get_tag_folders(path)
+            items = await self.get_tag_folders(path)
 
         if subpath == "country" and subsubpath:
-            return await self.get_by_country(subsubpath)
+            items = await self.get_by_country(subsubpath)
 
         if subpath == "country":
-            return await self.get_country_folders(path)
+            items = await self.get_country_folders(path)
 
-        return []
+        return items[offset : offset + limit]
 
     async def get_library_radios(self) -> AsyncGenerator[Radio, None]:
         """Retrieve library/subscribed radio stations from the provider."""

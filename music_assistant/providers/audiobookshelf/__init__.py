@@ -9,7 +9,11 @@ import logging
 from collections.abc import AsyncGenerator, Sequence
 from typing import TYPE_CHECKING
 
-from music_assistant_models.config_entries import ConfigEntry, ConfigValueType, ProviderConfig
+from music_assistant_models.config_entries import (
+    ConfigEntry,
+    ConfigValueType,
+    ProviderConfig,
+)
 from music_assistant_models.enums import (
     ConfigEntryType,
     ContentType,
@@ -507,19 +511,21 @@ class Audiobookshelf(MusicProvider):
             raise RuntimeError(f"Media type must not be {media_type}")
         return items
 
-    async def browse(self, path: str) -> Sequence[MediaItemType | ItemMapping]:
+    async def browse(
+        self, path: str, limit: int = 50, offset: int = 0
+    ) -> Sequence[MediaItemType | ItemMapping]:
         """Browse features shows libraries names."""
         item_path = path.split("://", 1)[1]
         if not item_path:  # root
-            return await super().browse(path)
+            return await super().browse(path, limit, offset)
 
         # HANDLE ROOT PATH
         if item_path == "audiobooks":
             library_list = self._client.audiobook_libraries
-            return await self._browse_root(library_list, item_path)
+            return (await self._browse_root(library_list, item_path))[offset : offset + limit]
         elif item_path == "podcasts":
             library_list = self._client.podcast_libraries
-            return await self._browse_root(library_list, item_path)
+            return (await self._browse_root(library_list, item_path))[offset : offset + limit]
 
         # HANDLE WITHIN LIBRARY
         library_type, library_id = item_path.split("/")
@@ -532,4 +538,6 @@ class Audiobookshelf(MusicProvider):
         else:
             raise MediaNotFoundError("Specified Lib Type unknown")
 
-        return await self._browse_lib(library_id, library_list, media_type)
+        return (await self._browse_lib(library_id, library_list, media_type))[
+            offset : offset + limit
+        ]

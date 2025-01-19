@@ -8,14 +8,18 @@ import logging
 import os
 import os.path
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import TYPE_CHECKING, cast
 
 import aiofiles
 import shortuuid
 import xmltodict
 from aiofiles.os import wrap
-from music_assistant_models.config_entries import ConfigEntry, ConfigValueOption, ConfigValueType
+from music_assistant_models.config_entries import (
+    ConfigEntry,
+    ConfigValueOption,
+    ConfigValueType,
+)
 from music_assistant_models.enums import (
     ConfigEntryType,
     ContentType,
@@ -25,7 +29,11 @@ from music_assistant_models.enums import (
     ProviderFeature,
     StreamType,
 )
-from music_assistant_models.errors import MediaNotFoundError, MusicAssistantError, SetupFailedError
+from music_assistant_models.errors import (
+    MediaNotFoundError,
+    MusicAssistantError,
+    SetupFailedError,
+)
 from music_assistant_models.media_items import (
     Album,
     Artist,
@@ -56,7 +64,12 @@ from music_assistant.constants import (
 )
 from music_assistant.helpers.compare import compare_strings, create_safe_string
 from music_assistant.helpers.playlists import parse_m3u, parse_pls
-from music_assistant.helpers.tags import AudioTags, async_parse_tags, parse_tags, split_items
+from music_assistant.helpers.tags import (
+    AudioTags,
+    async_parse_tags,
+    parse_tags,
+    split_items,
+)
 from music_assistant.helpers.util import parse_title_and_version
 from music_assistant.models.music_provider import MusicProvider
 
@@ -233,7 +246,9 @@ class LocalFileSystemProvider(MusicProvider):
             )
         return result
 
-    async def browse(self, path: str) -> list[MediaItemType | ItemMapping]:
+    async def browse(
+        self, path: str, limit: int = 50, offset: int = 0
+    ) -> Sequence[MediaItemType | ItemMapping]:
         """Browse this provider's items.
 
         :param path: The path to browse, (e.g. provid://artists).
@@ -243,7 +258,8 @@ class LocalFileSystemProvider(MusicProvider):
         if not item_path:
             item_path = ""
         abs_path = self.get_absolute_path(item_path)
-        for item in await asyncio.to_thread(sorted_scandir, self.base_path, abs_path, sort=True):
+        scanned_items = await asyncio.to_thread(sorted_scandir, self.base_path, abs_path, sort=True)
+        for item in scanned_items[offset : offset + limit]:
             if not item.is_dir and ("." not in item.filename or not item.ext):
                 # skip system files and files without extension
                 continue
@@ -732,7 +748,10 @@ class LocalFileSystemProvider(MusicProvider):
         return file_item.absolute_path
 
     async def _parse_track(
-        self, file_item: FileSystemItem, tags: AudioTags, full_album_metadata: bool = False
+        self,
+        file_item: FileSystemItem,
+        tags: AudioTags,
+        full_album_metadata: bool = False,
     ) -> Track:
         """Get full track details by id. NOT async friendly."""
         # ruff: noqa: PLR0915, PLR0912
