@@ -275,7 +275,7 @@ class SoundcloudMusicProvider(MusicProvider):
         return result
 
     async def get_artist_toptracks(self, prov_artist_id: str) -> list[Track]:
-        """Get a list of 500 tracks for the given artist."""
+        """Get a list of (max 500) tracks for the given artist."""
         tracks_obj = await self._soundcloud.get_tracks_from_user(prov_artist_id, 500)
 
         tracks = []
