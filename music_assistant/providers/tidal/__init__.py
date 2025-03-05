@@ -11,11 +11,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from aiohttp import ClientResponse
-from music_assistant_models.config_entries import (
-    ConfigEntry,
-    ConfigValueOption,
-    ConfigValueType,
-)
+from music_assistant_models.config_entries import ConfigEntry, ConfigValueOption, ConfigValueType
 from music_assistant_models.enums import (
     AlbumType,
     ConfigEntryType,
@@ -47,10 +43,7 @@ from music_assistant_models.media_items import (
 from music_assistant_models.streamdetails import StreamDetails
 
 from music_assistant.constants import CACHE_CATEGORY_DEFAULT
-from music_assistant.helpers.throttle_retry import (
-    ThrottlerManager,
-    throttle_with_retries,
-)
+from music_assistant.helpers.throttle_retry import ThrottlerManager, throttle_with_retries
 from music_assistant.models.music_provider import MusicProvider
 
 from .auth_manager import ManualAuthenticationHelper, TidalAuthManager
@@ -818,10 +811,15 @@ class TidalProvider(MusicProvider):
                 raise MediaNotFoundError(f"No stream URL for track {item_id}")
 
         # Determine audio format info
-        codec = stream_data.get("codec", "")
-        content_type = ContentType.try_parse(codec)
-        bit_depth = 24 if "HI_RES_LOSSLESS" in stream_data.get("audioMode", "") else 16
+        bit_depth = stream_data.get("bitDepth", 16)
         sample_rate = stream_data.get("sampleRate", 44100)
+        audio_quality: str | None = stream_data.get("audioQuality")
+        if audio_quality in ("HI_RES_LOSSLESS", "LOSSLESS"):
+            content_type = ContentType.FLAC
+        elif codec := stream_data.get("codec"):
+            content_type = ContentType.try_parse(codec)
+        else:
+            content_type = ContentType.MP4
 
         return StreamDetails(
             item_id=track.item_id,
