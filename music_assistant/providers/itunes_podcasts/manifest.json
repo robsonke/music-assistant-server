@@ -10,6 +10,6 @@
     "podcastparser==0.6.10"
   ],
   "icon": "podcast",
-  "documentation": "https://music-assistant.io/music-providers/itunes-podcasts/",
+  "documentation": "https://beta.music-assistant.io/music-providers/itunes-podcasts/",
   "multi_instance": false
 }
