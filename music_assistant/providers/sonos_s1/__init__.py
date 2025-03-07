@@ -26,8 +26,8 @@ from music_assistant_models.enums import (
 from music_assistant_models.errors import PlayerCommandFailed, PlayerUnavailableError
 from music_assistant_models.player import DeviceInfo, Player, PlayerMedia
 from requests.exceptions import RequestException
+from soco import SoCo, events_asyncio, zonegroupstate
 from soco import config as soco_config
-from soco import events_asyncio, zonegroupstate
 from soco.discovery import discover, scan_network
 
 from music_assistant.constants import (
@@ -35,6 +35,7 @@ from music_assistant.constants import (
     CONF_ENTRY_CROSSFADE,
     CONF_ENTRY_FLOW_MODE_HIDDEN_DISABLED,
     CONF_ENTRY_HTTP_PROFILE_FORCED_1,
+    CONF_ENTRY_MANUAL_DISCOVERY_IPS,
     CONF_ENTRY_OUTPUT_CODEC,
     VERBOSE_LOG_LEVEL,
     create_sample_rates_config_entry,
@@ -47,7 +48,6 @@ from .player import SonosPlayer
 if TYPE_CHECKING:
     from music_assistant_models.config_entries import ProviderConfig
     from music_assistant_models.provider import ProviderManifest
-    from soco.core import SoCo
 
     from music_assistant.mass import MusicAssistant
     from music_assistant.models import ProviderInstanceType
@@ -120,6 +120,7 @@ async def get_config_entries(
             category="advanced",
             required=False,
         ),
+        CONF_ENTRY_MANUAL_DISCOVERY_IPS,
     )
 
 
@@ -364,6 +365,25 @@ class SonosPlayerProvider(PlayerProvider):
         """Discover Sonos players on the network."""
         if self._discovery_running:
             return
+
+        # Handle config option for manual IP's
+        manual_ip_config = cast(
+            list[str], self.config.get_value(CONF_ENTRY_MANUAL_DISCOVERY_IPS.key)
+        )
+        for ip_address in manual_ip_config:
+            try:
+                player = SoCo(ip_address)
+                self._add_player(player)
+            except RequestException as err:
+                # player is offline
+                self.logger.debug("Failed to add SonosPlayer %s: %s", player, err)
+            except Exception as err:
+                self.logger.warning(
+                    "Failed to add SonosPlayer %s: %s",
+                    player,
+                    err,
+                    exc_info=err if self.logger.isEnabledFor(10) else None,
+                )
 
         allow_network_scan = self.config.get_value(CONF_NETWORK_SCAN)
         if not (household_id := self.config.get_value(CONF_HOUSEHOLD_ID)):
