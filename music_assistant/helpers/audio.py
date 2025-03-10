@@ -597,7 +597,7 @@ async def get_media_stream(
         substream = await get_hls_substream(mass, streamdetails.path)
         audio_source = substream.path
         if streamdetails.media_type == MediaType.RADIO:
-            # Especially the BBC streams struggle when they're played directly
+            # HLS streams (especially the BBC) struggle when they're played directly
             # with ffmpeg, where they just stop after some minutes,
             # so we tell ffmpeg to loop around in this case.
             extra_input_args += ["-stream_loop", "-1", "-re"]

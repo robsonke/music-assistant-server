@@ -949,25 +949,30 @@ class StreamsController(CoreController):
             filter_params.append(f"volume={gain_correct}dB")
         streamdetails.volume_normalization_gain_correct = gain_correct
 
-        if streamdetails.media_type == MediaType.RADIO:
-            # pad some silence before the radio stream starts to create some headroom
-            # for radio stations that do not provide any look ahead buffer
-            # without this, some radio streams jitter a lot, especially with dynamic normalization
-            pad_seconds = (
-                5
-                if streamdetails.volume_normalization_mode == VolumeNormalizationMode.DYNAMIC
-                else 2
-            )
-            async for chunk in get_silence(pad_seconds, pcm_format):
-                yield chunk
+        pad_silence_seconds = 0
+        if streamdetails.media_type == MediaType.RADIO or not streamdetails.duration:
+            # pad some silence before the radio/live stream starts to create some headroom
+            # for radio stations (or other live streams) that do not provide any look ahead buffer
+            # without this, some radio streams jitter a lot, especially with dynamic normalization,
+            # if the stream does not provide a look ahead buffer
+            pad_silence_seconds = 2
 
+        first_chunk_received = False
         async for chunk in get_media_stream(
             self.mass,
             streamdetails=streamdetails,
             pcm_format=pcm_format,
             filter_params=filter_params,
         ):
+            # yield silence when the chunk has been received from source but not yet sent to player
+            # so we have a bit of backpressure to prevent jittering
+            if not first_chunk_received and pad_silence_seconds:
+                first_chunk_received = True
+                async for silence in get_silence(pad_silence_seconds, pcm_format):
+                    yield silence
+                    del silence
             yield chunk
+            del chunk
 
     def _log_request(self, request: web.Request) -> None:
         """Log request."""
