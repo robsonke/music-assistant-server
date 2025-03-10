@@ -157,8 +157,10 @@ class StreamCache:
             audio_input=audio_source,
             input_format=self.streamdetails.audio_format,
             output_format=self.streamdetails.audio_format,
-            extra_input_args=extra_input_args,
             chunk_size=64000,
+            # apply readrate limiting to avoid buffering too much data too fast
+            # so we only allow reading into the cache max 5 times the normal speed
+            extra_input_args=["-readrate", "5", *extra_input_args],
         ):
             async with self._lock:
                 self._data += chunk
