@@ -465,12 +465,6 @@ class PlayerGroupProvider(PlayerProvider):
                 output_format=UGP_FORMAT,
                 player_id=media.custom_data["player_id"],
             )
-        elif media.media_type == MediaType.RADIO:
-            # use single item stream request for radio streams
-            audio_source = self.mass.streams.get_queue_item_stream(
-                queue_item=self.mass.player_queues.get_item(media.queue_id, media.queue_item_id),
-                pcm_format=UGP_FORMAT,
-            )
         elif media.queue_id and media.queue_item_id:
             # regular queue stream request
             audio_source = self.mass.streams.get_queue_flow_stream(

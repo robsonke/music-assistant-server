@@ -567,13 +567,6 @@ class SnapCastProvider(PlayerProvider):
             ugp_stream = ugp_provider.ugp_streams[media.queue_id]
             input_format = ugp_stream.base_pcm_format
             audio_source = ugp_stream.subscribe_raw()
-        elif media.media_type == MediaType.RADIO:
-            # use single item stream request for radio streams
-            input_format = DEFAULT_SNAPCAST_FORMAT
-            audio_source = self.mass.streams.get_queue_item_stream(
-                queue_item=self.mass.player_queues.get_item(media.queue_id, media.queue_item_id),
-                pcm_format=DEFAULT_SNAPCAST_FORMAT,
-            )
         elif media.queue_id and media.queue_item_id:
             # regular queue (flow) stream request
             input_format = DEFAULT_SNAPCAST_PCM_FORMAT

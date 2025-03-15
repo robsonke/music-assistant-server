@@ -335,15 +335,6 @@ class AirplayProvider(PlayerProvider):
             ugp_stream = ugp_provider.ugp_streams[media.queue_id]
             input_format = ugp_stream.base_pcm_format
             audio_source = ugp_stream.subscribe_raw()
-        elif media.media_type == MediaType.RADIO and media.queue_id and media.queue_item_id:
-            # use single item stream request for radio streams
-            input_format = AIRPLAY_PCM_FORMAT
-            queue_item = self.mass.player_queues.get_item(media.queue_id, media.queue_item_id)
-            assert queue_item is not None  # for type checking
-            audio_source = self.mass.streams.get_queue_item_stream(
-                queue_item=queue_item,
-                pcm_format=AIRPLAY_PCM_FORMAT,
-            )
         elif media.queue_id and media.queue_item_id:
             # regular queue (flow) stream request
             input_format = AIRPLAY_FLOW_PCM_FORMAT

@@ -805,7 +805,7 @@ class StreamsController(CoreController):
                 pcm_format=pcm_format,
             ):
                 # buffer size needs to be big enough to include the crossfade part
-                req_buffer_size = pcm_sample_size * 2 if not use_crossfade else crossfade_size
+                req_buffer_size = pcm_sample_size if not use_crossfade else crossfade_size
 
                 # ALWAYS APPEND CHUNK TO BUFFER
                 buffer += chunk
@@ -1006,7 +1006,7 @@ class StreamsController(CoreController):
             # for radio stations (or other live streams) that do not provide any look ahead buffer
             # without this, some radio streams jitter a lot, especially with dynamic normalization,
             # if the stream does not provide a look ahead buffer
-            pad_silence_seconds = 2
+            pad_silence_seconds = 4
 
         first_chunk_received = False
         async for chunk in get_media_stream(
