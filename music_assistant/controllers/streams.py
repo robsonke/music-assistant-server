@@ -658,6 +658,7 @@ class StreamsController(CoreController):
             output_format_str=request.match_info["fmt"],
             player=player,
             content_sample_rate=plugin_source.audio_format.sample_rate,
+            content_bit_depth=plugin_source.audio_format.bit_depth,
         )
         headers = {
             **DEFAULT_STREAM_HEADERS,
