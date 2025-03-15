@@ -471,8 +471,9 @@ class SnapCastProvider(PlayerProvider):
         # and assigns the default stream to the player
         # we do this delayed so we can reuse the stream if a new play command is issued
         async def clear_stream():
-            await self._get_snapgroup(player_id).set_stream("default")
-            await self._delete_current_snapstream(self._get_snapstream(player_id))
+            with suppress(KeyError):
+                await self._get_snapgroup(player_id).set_stream("default")
+                await self._delete_current_snapstream(self._get_snapstream(player_id))
 
         self.mass.call_later(
             30, self.mass.create_task, clear_stream, task_id=f"snapcast_clear_stream_{player_id}"
