@@ -983,6 +983,11 @@ class PlayerController(CoreController):
         if self.mass.closing:
             return
 
+        if (existing := self.get(player.player_id)) and not existing.available and player.available:
+            # player was previously unavailable, but is now available again
+            self.logger.info("Player %s is available again", player.name)
+            del self._players[player.player_id]
+
         if player.player_id in self._players:
             self._players[player.player_id] = player
             self.update(player.player_id)
