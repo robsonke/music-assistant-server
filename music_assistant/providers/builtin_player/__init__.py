@@ -23,10 +23,7 @@ from typing import TYPE_CHECKING, cast
 
 import shortuuid
 from aiohttp import web
-from music_assistant_models.builtin_player import (
-    BuiltinPlayerEvent,
-    BuiltinPlayerState,
-)
+from music_assistant_models.builtin_player import BuiltinPlayerEvent, BuiltinPlayerState
 from music_assistant_models.constants import PLAYER_CONTROL_NONE
 from music_assistant_models.enums import (
     BuiltinPlayerEventType,
@@ -39,16 +36,13 @@ from music_assistant_models.enums import (
 )
 from music_assistant_models.errors import PlayerUnavailableError
 from music_assistant_models.media_items import AudioFormat
-from music_assistant_models.player import (
-    DeviceInfo,
-    Player,
-    PlayerMedia,
-)
+from music_assistant_models.player import DeviceInfo, Player, PlayerMedia
 
 from music_assistant.constants import (
     CONF_ENTRY_CROSSFADE,
     CONF_ENTRY_CROSSFADE_DURATION,
     CONF_ENTRY_FLOW_MODE_ENFORCED,
+    CONF_ENTRY_HTTP_PROFILE,
     DEFAULT_PCM_FORMAT,
     DEFAULT_STREAM_HEADERS,
 )
@@ -59,11 +53,7 @@ from music_assistant.models import ProviderInstanceType
 from music_assistant.models.player_provider import PlayerProvider
 
 if TYPE_CHECKING:
-    from music_assistant_models.config_entries import (
-        ConfigEntry,
-        ConfigValueType,
-        ProviderConfig,
-    )
+    from music_assistant_models.config_entries import ConfigEntry, ConfigValueType, ProviderConfig
     from music_assistant_models.provider import ProviderManifest
 
 
@@ -147,6 +137,7 @@ class BuiltinPlayerProvider(PlayerProvider):
             CONF_ENTRY_FLOW_MODE_ENFORCED,
             CONF_ENTRY_CROSSFADE,
             CONF_ENTRY_CROSSFADE_DURATION,
+            CONF_ENTRY_HTTP_PROFILE,
         )
 
     async def cmd_stop(self, player_id: str) -> None:

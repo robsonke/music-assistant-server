@@ -142,6 +142,8 @@ async def get_config_entries(
             required=False,
             category=CONF_CATEGORY_BUILT_IN,
             hidden=not local_snapserver_present,
+            depends_on=CONF_USE_EXTERNAL_SERVER,
+            depends_on_value_not=True,
             help_link=CONF_HELP_LINK,
         ),
         ConfigEntry(
@@ -153,6 +155,8 @@ async def get_config_entries(
             required=False,
             category=CONF_CATEGORY_BUILT_IN,
             hidden=not local_snapserver_present,
+            depends_on=CONF_USE_EXTERNAL_SERVER,
+            depends_on_value_not=True,
             help_link=CONF_HELP_LINK,
         ),
         ConfigEntry(
@@ -164,6 +168,8 @@ async def get_config_entries(
             required=False,
             category=CONF_CATEGORY_BUILT_IN,
             hidden=not local_snapserver_present,
+            depends_on=CONF_USE_EXTERNAL_SERVER,
+            depends_on_value_not=True,
             help_link=CONF_HELP_LINK,
         ),
         ConfigEntry(
@@ -174,6 +180,8 @@ async def get_config_entries(
             required=False,
             category=CONF_CATEGORY_BUILT_IN,
             hidden=not local_snapserver_present,
+            depends_on=CONF_USE_EXTERNAL_SERVER,
+            depends_on_value_not=True,
             help_link=CONF_HELP_LINK,
         ),
         ConfigEntry(
@@ -202,6 +210,8 @@ async def get_config_entries(
             required=False,
             category=CONF_CATEGORY_BUILT_IN,
             hidden=not local_snapserver_present,
+            depends_on=CONF_USE_EXTERNAL_SERVER,
+            depends_on_value_not=True,
             help_link=CONF_HELP_LINK,
         ),
         ConfigEntry(
