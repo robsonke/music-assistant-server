@@ -363,6 +363,11 @@ class SnapCastProvider(PlayerProvider):
     def _handle_update(self) -> None:
         """Process Snapcast init Player/Group and set callback ."""
         for snap_client in self._snapserver.clients:
+            if not snap_client.identifier:
+                self.logger.warning(
+                    "Detected Snapclient %s without identifier, skipping", snap_client.friendly_name
+                )
+                continue
             self._handle_player_init(snap_client)
             snap_client.set_callback(self._handle_player_update)
         for snap_client in self._snapserver.clients:
@@ -454,14 +459,24 @@ class SnapCastProvider(PlayerProvider):
                 stream_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await stream_task
-        # assign default/empty stream to the player
-        await self._get_snapgroup(player_id).set_stream("default")
-        await asyncio.sleep(0.5)
+
         player.state = PlayerState.IDLE
         player.current_media = None
         player.active_source = None
         self._set_childs_state(player_id)
         self.mass.players.update(player_id)
+
+        # assign default/empty stream to the player
+        # this removed the player/group specific MA stream which was dynamically created
+        # and assigns the default stream to the player
+        # we do this delayed so we can reuse the stream if a new play command is issued
+        async def clear_stream():
+            await self._get_snapgroup(player_id).set_stream("default")
+            await self._delete_current_snapstream(self._get_snapstream(player_id))
+
+        self.mass.call_later(
+            30, self.mass.create_task, clear_stream, task_id=f"snapcast_clear_stream_{player_id}"
+        )
 
     async def cmd_volume_mute(self, player_id: str, muted: bool) -> None:
         """Send MUTE command to given player."""
@@ -616,6 +631,8 @@ class SnapCastProvider(PlayerProvider):
         self._stream_tasks[player_id] = self.mass.create_task(_streamer())
 
     async def _delete_current_snapstream(self, stream: Snapstream) -> None:
+        if not stream.identifier.startswith(MASS_STREAM_POSTFIX):
+            return
         with suppress(TypeError, KeyError, AttributeError):
             await self._snapserver.stream_remove_stream(stream.identifier)
 
@@ -660,6 +677,8 @@ class SnapCastProvider(PlayerProvider):
         """Create new stream on snapcast server (or return existing one)."""
         mass_queue = self.mass.player_queues.get(queue_id)
         stream_name = f"{MASS_STREAM_POSTFIX} - {mass_queue.display_name}"
+        # cancel any existing clear stream task
+        self.mass.cancel_timer(f"snapcast_clear_stream_{player_id}")
 
         # prefer to reuse existing stream if possible
         for stream in self._snapserver.streams:
