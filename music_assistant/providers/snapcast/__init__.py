@@ -421,7 +421,7 @@ class SnapCastProvider(PlayerProvider):
         if stream := self._get_snapstream(player_id):
             if stream.identifier == "default":
                 player.active_source = None
-            elif not stream.identifier.startswith("Music Assistant"):
+            elif not stream.identifier.startswith(MASS_STREAM_POSTFIX):
                 player.active_source = stream.identifier
         else:
             player.active_source = None
@@ -754,7 +754,6 @@ class SnapCastProvider(PlayerProvider):
             f"--stream.codec={self._snapcast_server_transport_codec}",
             f"--stream.send_to_muted={str(self._snapcast_server_send_to_muted).lower()}",
             f"--streaming_client.initial_volume={self._snapcast_server_initial_volume}",
-            "--stream.source=pipe:///tmp/snapfifo?name=default&sampleformat=48000:16:2",
         ]
         async with AsyncProcess(args, stdout=True, name="snapserver") as snapserver_proc:
             # keep reading from stdout until exit
