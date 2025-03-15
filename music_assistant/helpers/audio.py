@@ -41,7 +41,6 @@ from music_assistant.constants import (
     CONF_VOLUME_NORMALIZATION_RADIO,
     CONF_VOLUME_NORMALIZATION_TARGET,
     CONF_VOLUME_NORMALIZATION_TRACKS,
-    DEFAULT_ALLOW_AUDIO_CACHE,
     MASS_LOGGER_NAME,
     VERBOSE_LOG_LEVEL,
 )
@@ -69,8 +68,6 @@ LOGGER = logging.getLogger(f"{MASS_LOGGER_NAME}.audio")
 
 HTTP_HEADERS = {"User-Agent": "Lavf/60.16.100.MusicAssistant"}
 HTTP_HEADERS_ICY = {**HTTP_HEADERS, "Icy-MetaData": "1"}
-
-REQUIRED_FREE_CACHE_SPACE = 5  # 5 GB
 
 
 async def remove_file(file_path: str) -> None:
@@ -600,11 +597,11 @@ async def _is_cache_allowed(mass: MusicAssistant, streamdetails: StreamDetails) 
     if streamdetails.stream_type in (StreamType.ICY, StreamType.LOCAL_FILE, StreamType.UNKNOWN):
         return False
     allow_cache = mass.config.get_raw_core_config_value(
-        "streams", CONF_ALLOW_AUDIO_CACHE, DEFAULT_ALLOW_AUDIO_CACHE
+        "streams", CONF_ALLOW_AUDIO_CACHE, mass.streams.allow_cache_default
     )
     if allow_cache == "disabled":
         return False
-    if not await has_enough_space(mass.streams.audio_cache_dir, REQUIRED_FREE_CACHE_SPACE):
+    if not await has_enough_space(mass.streams.audio_cache_dir, 0.5):
         return False
     if allow_cache == "always":
         return True
