@@ -64,7 +64,6 @@ from music_assistant.helpers.audio import (
 from music_assistant.helpers.ffmpeg import LOGGER as FFMPEG_LOGGER
 from music_assistant.helpers.ffmpeg import check_ffmpeg_version, get_ffmpeg_stream
 from music_assistant.helpers.util import (
-    clean_old_files,
     get_free_space,
     get_ip,
     get_ips,
@@ -263,8 +262,6 @@ class StreamsController(CoreController):
             if await has_enough_space(self._audio_cache_dir, AUDIO_CACHE_MAX_SIZE * 1.5)
             else "disabled"
         )
-        # schedule cleanup of old audio cache files
-        await self._clean_audio_cache()
         # start the webserver
         self.publish_port = config.get_value(CONF_BIND_PORT)
         self.publish_ip = config.get_value(CONF_PUBLISH_IP)
@@ -1100,15 +1097,3 @@ class StreamsController(CoreController):
             bit_depth=DEFAULT_PCM_FORMAT.bit_depth,
             channels=2,
         )
-
-    async def _clean_audio_cache(self) -> None:
-        """Clean up audio cache periodically."""
-        max_cache_size = AUDIO_CACHE_MAX_SIZE
-        cache_enabled = await self.mass.config.get_core_config_value(
-            self.domain, CONF_ALLOW_AUDIO_CACHE
-        )
-        if cache_enabled == "disabled":
-            max_cache_size = 0.001
-        await clean_old_files(self.audio_cache_dir, max_cache_size)
-        # reschedule self
-        self.mass.call_later(3600, self._clean_audio_cache)
