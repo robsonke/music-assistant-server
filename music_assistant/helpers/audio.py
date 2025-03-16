@@ -97,14 +97,14 @@ class StreamCache:
             # cache file already exists
             return
         # use cache controller to store the translation of uri-->cache file
-        if stored_cache_file := await self.mass.cache.get(
-            self.streamdetails.uri, base_key="audiocache"
-        ):
+        if (
+            stored_cache_file := await self.mass.cache.get(
+                self.streamdetails.uri, base_key="audiocache"
+            )
+        ) and await asyncio.to_thread(os.path.exists, stored_cache_file):
             # cache file already exists in memory
             self._cache_file = stored_cache_file
-            if await asyncio.to_thread(os.path.exists, self._cache_file):
-                # cache file already exists
-                return
+            return
         else:
             # create new cache file
             cache_id = shortuuid.random(30)
