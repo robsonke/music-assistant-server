@@ -462,7 +462,7 @@ class RaopStream:
 
     async def _send_metadata(self, queue: PlayerQueue) -> None:
         """Send metadata to player (and connected sync childs)."""
-        if not queue or not queue.current_item:
+        if not queue or not queue.current_item or self._stopped:
             return
         duration = min(queue.current_item.duration or 0, 3600)
         title = queue.current_item.name
@@ -490,7 +490,7 @@ class RaopStream:
         await self.send_cli_command(cmd)
 
         # get image
-        if not queue.current_item.image:
+        if not queue.current_item.image or self._stopped:
             return
 
         # the image format needs to be 500x500 jpeg for maximum compatibility with players
@@ -501,7 +501,7 @@ class RaopStream:
 
     async def _send_progress(self, queue: PlayerQueue) -> None:
         """Send progress report to player (and connected sync childs)."""
-        if not queue or not queue.current_item:
+        if not queue or not queue.current_item or self._stopped:
             return
         progress = int(queue.corrected_elapsed_time)
         await self.send_cli_command(f"PROGRESS={progress}\n")
