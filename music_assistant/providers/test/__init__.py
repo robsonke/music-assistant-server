@@ -315,7 +315,6 @@ class TestProvider(MusicProvider):
             provider=self.lookup_key,
             name=f"Test PodcastEpisode {podcast_id}-{episode_idx}",
             duration=60,
-            publish_date=None,
             podcast=ItemMapping(
                 item_id=podcast_id,
                 provider=self.lookup_key,

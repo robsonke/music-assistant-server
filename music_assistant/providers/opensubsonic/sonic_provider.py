@@ -349,7 +349,6 @@ class OpenSonicProvider(MusicProvider):
             name=sonic_episode.title,
             position=pos,
             podcast=self._parse_podcast(sonic_channel),
-            publish_date=None,
             provider_mappings={
                 ProviderMapping(
                     item_id=eid,
