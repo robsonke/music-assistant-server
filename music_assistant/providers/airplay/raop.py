@@ -295,6 +295,10 @@ class RaopStream:
             if "Cannot connect to AirPlay device" in line:
                 self.ffmpeg_reader_task.cancel()
                 raise PlayerCommandFailed("Cannot connect to AirPlay device")
+        # repeat sending the volume level to the player because some players seem
+        # to ignore it the first time
+        # https://github.com/music-assistant/support/issues/3330
+        await self.send_cli_command(f"VOLUME={mass_player.volume_level}\n")
         # start reading the stderr of the cliraop process from another task
         self._stderr_reader_task = self.mass.create_task(self._stderr_reader())
 
