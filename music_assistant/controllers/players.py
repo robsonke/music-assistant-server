@@ -1348,6 +1348,8 @@ class PlayerController(CoreController):
         # if the PlayerQueue was playing, restart playback
         # TODO: add property to ConfigEntry if it requires a restart of playback on change
         elif not player_disabled and resume_queue and resume_queue.state == PlayerState.PLAYING:
+            # always stop first to ensure the player uses the new config
+            await self.mass.player_queues.stop(resume_queue.queue_id)
             self.mass.call_later(1, self.mass.player_queues.resume, resume_queue.queue_id)
         # check for group memberships that need to be updated
         if player_disabled and player.active_group and player_provider:
