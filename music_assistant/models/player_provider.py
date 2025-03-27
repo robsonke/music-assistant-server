@@ -110,6 +110,11 @@ class PlayerProvider(Provider):
                     hidden=True,
                 ),
                 CONF_ENTRY_AUTO_PLAY,
+                (
+                    CONF_ENTRY_EXPOSE_PLAYER_TO_HA
+                    if player and player.expose_to_ha_by_default
+                    else CONF_ENTRY_EXPOSE_PLAYER_TO_HA_DEFAULT_DISABLED
+                ),
             )
         return (
             # config entries that are valid for all players
