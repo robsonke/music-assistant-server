@@ -312,9 +312,13 @@ class StreamsController(CoreController):
         """Resolve the stream URL for the given QueueItem."""
         if not player_id:
             player_id = queue_item.queue_id
-        output_codec = ContentType.try_parse(
-            await self.mass.config.get_player_config_value(player_id, CONF_OUTPUT_CODEC)
-        )
+        try:
+            conf_output_codec = await self.mass.config.get_player_config_value(
+                player_id, CONF_OUTPUT_CODEC
+            )
+        except KeyError:
+            conf_output_codec = "flac"
+        output_codec = ContentType.try_parse(conf_output_codec)
         fmt = output_codec.value
         # handle raw pcm without exact format specifiers
         if output_codec.is_pcm() and ";" not in fmt:
