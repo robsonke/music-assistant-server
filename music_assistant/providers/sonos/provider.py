@@ -520,7 +520,8 @@ class SonosPlayerProvider(PlayerProvider):
                 "limitedSkips": False,
                 "canSkipToItem": True,
                 "canSkipBack": True,
-                "canSeek": True,
+                # seek needs to be disabled because we dont properly support range requests
+                "canSeek": False,
                 "canRepeat": True,
                 "canRepeatOne": True,
                 "canCrossfade": True,
@@ -557,6 +558,13 @@ class SonosPlayerProvider(PlayerProvider):
     async def _parse_sonos_queue_item(self, queue_item: QueueItem) -> dict[str, Any]:
         """Parse a Sonos queue item to a PlayerMedia object."""
         stream_url = await self.mass.streams.resolve_stream_url(queue_item)
+        if streamdetails := queue_item.streamdetails:
+            duration = streamdetails.duration or queue_item.duration
+            if duration and streamdetails.seek_position:
+                duration -= streamdetails.seek_position
+        else:
+            duration = queue_item.duration
+
         return {
             "id": queue_item.queue_item_id,
             "deleted": not queue_item.available,
@@ -565,7 +573,8 @@ class SonosPlayerProvider(PlayerProvider):
                 "canSkip": True,
                 "canSkipBack": True,
                 "canSkipToItem": True,
-                "canSeek": True,
+                # seek needs to be disabled because we dont properly support range requests
+                "canSeek": False,
                 "canRepeat": True,
                 "canRepeatOne": True,
             },
@@ -585,7 +594,7 @@ class SonosPlayerProvider(PlayerProvider):
                 )
                 if queue_item.image
                 else None,
-                "durationMillis": queue_item.duration * 1000 if queue_item.duration else None,
+                "durationMillis": duration * 1000 if duration else None,
                 "artist": {
                     "name": artist_str,
                 }
