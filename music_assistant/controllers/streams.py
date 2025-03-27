@@ -234,7 +234,7 @@ class StreamsController(CoreController):
                 "On systems with limited diskspace, this can be disabled, "
                 "but may result in less smooth playback or slower seeking.\n\n"
                 "**Always:** Enforce caching of audio streams at all times "
-                "(as long as there is enough free space)."
+                "(as long as there is enough free space).\n"
                 "**Disabled:** Never cache audio streams.\n"
                 "**Auto:** Let Music Assistant decide if caching "
                 "should be used on a per-item base.",
