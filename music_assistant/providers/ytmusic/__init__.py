@@ -166,8 +166,10 @@ async def get_config_entries(
             default_value=DEFAULT_PO_TOKEN_SERVER_URL,
             label="PO Token Server URL",
             required=True,
-            description="The URL to the PO Token server. Can be left as default for most people. \n\n"
-            "**Note that this does require you to have the 'YT Music PO Token Generator' addon installed!**",
+            description="The URL to the PO Token server. "
+            "Can be left as default for most people. \n\n"
+            "**Note that this does require you to have the "
+            "'YT Music PO Token Generator' addon installed!**",
         ),
     )
 
@@ -191,7 +193,9 @@ class YoutubeMusicProvider(MusicProvider):
         )
         if not await self._verify_po_token_url():
             raise LoginFailed(
-                "PO Token server URL is not reachable. Make sure you have installed the YT Music PO Token Generator addon from the MusicAssistant repository and that it is running."
+                "PO Token server URL is not reachable. "
+                "Make sure you have installed the YT Music PO Token Generator "
+                "and that it is running."
             )
         yt_username = self.config.get_value(CONF_USERNAME)
         self._yt_user = yt_username if is_brand_account(yt_username) else None
@@ -616,7 +620,8 @@ class YoutubeMusicProvider(MusicProvider):
         if "__Secure-3PAPISID" not in self._cookie:
             raise LoginFailed(
                 "Invalid Cookie detected. Cookie is missing the __Secure-3PAPISID field. "
-                "Please ensure you are passing the correct cookie. You can verify this by checking if the string"
+                "Please ensure you are passing the correct cookie. "
+                "You can verify this by checking if the string "
                 "'__Secure-3PAPISID' is present in the cookie string."
             )
         sapisid = sapisid_from_cookie(self._cookie)
