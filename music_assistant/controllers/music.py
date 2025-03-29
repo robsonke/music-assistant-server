@@ -1151,7 +1151,7 @@ class MusicController(CoreController):
                 name="Random artists",
                 translation_key="random_artists",
                 icon="mdi-account-music",
-                items=await self.artists.library_items(limit=10, order_by="random"),
+                items=await self.artists.library_items(limit=10, order_by="random_play_count"),
             ),
             RecommendationFolder(
                 item_id="random_albums",
@@ -1159,23 +1159,35 @@ class MusicController(CoreController):
                 name="Random albums",
                 translation_key="random_albums",
                 icon="mdi-album",
-                items=await self.albums.library_items(limit=10, order_by="random"),
+                items=await self.albums.library_items(limit=10, order_by="random_play_count"),
             ),
             RecommendationFolder(
-                item_id="random_tracks",
+                item_id="recent_favorite_tracks",
                 provider="library",
-                name="Random tracks",
-                translation_key="random_tracks",
+                name="Recently favorited tracks",
+                translation_key="recent_favorite_tracks",
                 icon="mdi-file-music",
-                items=await self.tracks.library_items(limit=10, order_by="random"),
+                items=await self.tracks.library_items(
+                    favorite=True, limit=10, order_by="timestamp_added"
+                ),
             ),
             RecommendationFolder(
-                item_id="random_playlists",
+                item_id="favorite_playlists",
                 provider="library",
-                name="Random playlists",
-                translation_key="random_playlists",
+                name="Favorite playlists",
+                translation_key="favorite_playlists",
                 icon="mdi-playlist-music",
-                items=await self.playlists.library_items(limit=10, order_by="random"),
+                items=await self.playlists.library_items(
+                    favorite=True, limit=10, order_by="random"
+                ),
+            ),
+            RecommendationFolder(
+                item_id="favorite_radio",
+                provider="library",
+                name="Favorite Radio stations",
+                translation_key="favorite_radio",
+                icon="mdi-access-point",
+                items=await self.radio.library_items(favorite=True, limit=10, order_by="random"),
             ),
         ]
 
