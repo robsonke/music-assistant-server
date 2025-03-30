@@ -182,7 +182,7 @@ class SonosPlayer:
         self._on_cleanup_callbacks.append(
             self.mass.subscribe(
                 self._on_mass_queue_event,
-                EventType.QUEUE_UPDATED,
+                (EventType.QUEUE_UPDATED, EventType.QUEUE_ITEMS_UPDATED),
             )
         )
 
@@ -509,8 +509,12 @@ class SonosPlayer:
             return
         if not self.client.player.is_coordinator:
             return
-        # sync crossfade and repeat modes
-        await self.sync_play_modes(event.object_id)
+        if event.event == EventType.QUEUE_UPDATED:
+            # sync crossfade and repeat modes
+            await self.sync_play_modes(event.object_id)
+        elif event.event == EventType.QUEUE_ITEMS_UPDATED:
+            # update the queue version to force a refresh
+            self.queue_version = shortuuid.random(8)
 
     async def sync_play_modes(self, queue_id: str) -> None:
         """Sync the play modes between MA and Sonos."""
