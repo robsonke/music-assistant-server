@@ -347,10 +347,10 @@ class MetaDataController(CoreController):
         if not image.remotely_accessible or prefer_proxy or size:
             # return imageproxy url for images that need to be resolved
             # the original path is double encoded
-            encoded_url = urllib.parse.quote(urllib.parse.quote(image.path))
+            encoded_url = urllib.parse.quote_plus(urllib.parse.quote_plus(image.path))
             return (
-                f"{self.mass.streams.base_url}/imageproxy?path={encoded_url}"
-                f"&provider={image.provider}&size={size}&fmt={image_format}"
+                f"{self.mass.streams.base_url}/imageproxy?provider={image.provider}"
+                f"&size={size}&fmt={image_format}&path={encoded_url}"
             )
         return image.path
 
@@ -389,7 +389,7 @@ class MetaDataController(CoreController):
             return web.Response(status=404)
         if "%" in path:
             # assume (double) encoded url, decode it
-            path = urllib.parse.unquote(path)
+            path = urllib.parse.unquote_plus(path)
         with suppress(FileNotFoundError):
             image_data = await self.get_thumbnail(
                 path, size=size, provider=provider, image_format=image_format

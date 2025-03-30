@@ -661,7 +661,8 @@ class PlayerQueuesController(CoreController):
             # TODO: forward to underlying player if not active
             return
         idx = self._queues[queue_id].current_index
-        while True:
+        attempts = 5
+        while attempts:
             try:
                 if (next_index := self._get_next_index(queue_id, idx, True)) is not None:
                     await self.play_index(queue_id, next_index, debounce=True)
@@ -672,6 +673,7 @@ class PlayerQueuesController(CoreController):
                     queue.display_name,
                 )
                 idx += 1
+                attempts -= 1
 
     @api_command("player_queues/previous")
     async def previous(self, queue_id: str) -> None:
@@ -979,6 +981,9 @@ class PlayerQueuesController(CoreController):
             queue_item = self.get_item(queue_id, next_index)
             if queue_item is None:
                 raise QueueEmpty("No more tracks left in the queue.")
+            if idx >= 10:
+                # we only allow 10 retries to prevent infinite loops
+                raise QueueEmpty("No more (playable) tracks left in the queue.")
             try:
                 await self._load_item(queue_item, next_index)
                 # we're all set, this is our next item
@@ -1131,9 +1136,9 @@ class PlayerQueuesController(CoreController):
         if (
             insert_at_index == (index_in_buffer + 1)
             and queue.state != PlayerState.IDLE
-            and (cur_item := self.get_item(queue_id, index_in_buffer))
+            and (next_item := self._get_next_item(queue_id, index_in_buffer))
         ):
-            self._enqueue_next_item(queue_id, cur_item.queue_item_id)
+            self._enqueue_next_item(queue_id, next_item)
 
     def update_items(self, queue_id: str, queue_items: list[QueueItem]) -> None:
         """Update the existing queue items, mostly caused by reordering."""
