@@ -23,6 +23,7 @@ from music_assistant_models.player import DeviceInfo, PlayerMedia
 from zeroconf import ServiceStateChange
 
 from music_assistant.constants import (
+    CONF_CROSSFADE,
     CONF_ENTRY_CROSSFADE,
     CONF_ENTRY_CROSSFADE_DURATION_HIDDEN,
     CONF_ENTRY_FLOW_MODE_HIDDEN_DISABLED,
@@ -33,6 +34,7 @@ from music_assistant.constants import (
     VERBOSE_LOG_LEVEL,
     create_sample_rates_config_entry,
 )
+from music_assistant.helpers.didl_lite import create_didl_metadata_str
 from music_assistant.helpers.tags import async_parse_tags
 from music_assistant.models.player_provider import PlayerProvider
 
@@ -330,14 +332,16 @@ class SonosPlayerProvider(PlayerProvider):
                 await sonos_player.client.player.group.set_group_members(group_childs)
             return
 
-        if media.queue_id and media.queue_id.startswith("ugp_"):
-            # Special UGP stream - handle with play URL
-            # enforce mp3 here because Sonos really does not support FLAC streams without duration
-            media.uri = media.uri.replace(".flac", ".mp3")
-            await sonos_player.client.player.group.play_stream_url(media.uri, None)
-            return
-
-        if media.queue_id and media.media_type != MediaType.PLUGIN_SOURCE:
+        if (
+            media.queue_id
+            and media.media_type
+            not in (
+                MediaType.PLUGIN_SOURCE,
+                MediaType.FLOW_STREAM,
+            )
+            and not media.queue_id.startswith("ugp_")
+        ):
+            # Regular Queue item playback
             # create a sonos cloud queue and load it
             cloud_queue_url = f"{self.mass.streams.base_url}/sonos_queue/v2.3/"
             await sonos_player.client.player.group.play_cloud_queue(
@@ -349,6 +353,7 @@ class SonosPlayerProvider(PlayerProvider):
             self.mass.call_later(5, sonos_player.sync_play_modes, media.queue_id)
             return
 
+        # All other playback types
         # play a single uri/url
         # note that this most probably will only work for (long running) radio streams
         # enforce mp3 here because Sonos really does not support FLAC streams without duration
@@ -513,7 +518,7 @@ class SonosPlayerProvider(PlayerProvider):
             "reports": {
                 "sendUpdateAfterMillis": 1000,
                 "periodicIntervalMillis": 30000,
-                "sendPlaybackActions": False,
+                "sendPlaybackActions": True,
             },
             "playbackPolicies": {
                 "canSkip": True,
@@ -577,6 +582,7 @@ class SonosPlayerProvider(PlayerProvider):
                 "canSeek": False,
                 "canRepeat": True,
                 "canRepeatOne": True,
+                "canShuffle": True,
             },
             "track": {
                 "type": "track",
@@ -607,13 +613,77 @@ class SonosPlayerProvider(PlayerProvider):
                 if queue_item.media_item
                 and (album := getattr(queue_item.media_item, "album", None))
                 else None,
-                "quality": {
-                    "bitDepth": queue_item.streamdetails.audio_format.bit_depth,
-                    "sampleRate": queue_item.streamdetails.audio_format.sample_rate,
-                    "codec": queue_item.streamdetails.audio_format.content_type.value,
-                    "lossless": queue_item.streamdetails.audio_format.content_type.is_lossless(),
-                }
-                if queue_item.streamdetails
-                else None,
             },
         }
+
+    async def _play_media_legacy(
+        self,
+        sonos_player: SonosPlayer,
+        media: PlayerMedia,
+    ) -> None:
+        """Handle PLAY MEDIA using the legacy upnp api."""
+        xml_data = f"""
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+                s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                        <InstanceID>0</InstanceID>
+                        <CurrentURI>{media.uri}</CurrentURI>
+                        <CurrentURIMetaData>{create_didl_metadata_str(media)}</CurrentURIMetaData>
+                    </u:SetAVTransportURI>
+                </s:Body>
+            </s:Envelope>
+            """
+        player_ip = sonos_player.mass_player.device_info.ip_address
+        async with self.mass.http_session.post(
+            f"http://{player_ip}:1400/MediaRenderer/AVTransport/Control",
+            headers={
+                "SOAPACTION": "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI",
+                "Content-Type": "text/xml; charset=utf-8",
+                "Connection": "close",
+            },
+            data=xml_data,
+        ) as resp:
+            if resp.status != 200:
+                raise PlayerCommandFailed(
+                    f"Failed to send command to Sonos player: {resp.status} {resp.reason}"
+                )
+            await self.cmd_play(sonos_player.player_id)
+            return
+
+    async def _enqueue_next_media_legacy(
+        self, sonos_player: SonosPlayer, media: PlayerMedia
+    ) -> None:
+        """Handle enqueuing of the next queue item using the legacy unpnp api."""
+        xml_data = f"""
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:SetNextAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                        <InstanceID>0</InstanceID>
+                        <NextURI>{media.uri}</NextURI>
+                        <NextURIMetaData>{create_didl_metadata_str(media)}</NextURIMetaData>
+                    </u:SetNextAVTransportURI>
+                </s:Body>
+            </s:Envelope>
+            """
+        player_ip = sonos_player.mass_player.device_info.ip_address
+        async with self.mass.http_session.post(
+            f"http://{player_ip}:1400/MediaRenderer/AVTransport/Control",
+            headers={
+                "SOAPACTION": "urn:schemas-upnp-org:service:AVTransport:1#SetNextAVTransportURI",
+                "Content-Type": "text/xml; charset=utf-8",
+                "Connection": "close",
+            },
+            data=xml_data,
+        ) as resp:
+            if resp.status != 200:
+                raise PlayerCommandFailed(
+                    f"Failed to send command to Sonos player: {resp.status} {resp.reason}"
+                )
+
+        # set crossfade mode if needed
+        crossfade = bool(
+            await self.mass.config.get_player_config_value(sonos_player.player_id, CONF_CROSSFADE)
+        )
+        if sonos_player.client.player.group.play_modes.crossfade != crossfade:
+            await sonos_player.client.player.group.set_play_modes(crossfade=True)
