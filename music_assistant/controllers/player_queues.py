@@ -1133,7 +1133,7 @@ class PlayerQueuesController(CoreController):
             and queue.state != PlayerState.IDLE
             and (cur_item := self.get_item(queue_id, index_in_buffer))
         ):
-            self.enqueue_next_item(queue_id, cur_item.queue_item_id)
+            self._enqueue_next_item(queue_id, cur_item.queue_item_id)
 
     def update_items(self, queue_id: str, queue_items: list[QueueItem]) -> None:
         """Update the existing queue items, mostly caused by reordering."""
