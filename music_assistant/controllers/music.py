@@ -8,6 +8,7 @@ import os
 import shutil
 from collections.abc import Sequence
 from contextlib import suppress
+from datetime import datetime
 from itertools import zip_longest
 from math import inf
 from typing import TYPE_CHECKING, Final, cast
@@ -85,7 +86,7 @@ DEFAULT_SYNC_INTERVAL = 12 * 60  # default sync interval in minutes
 CONF_SYNC_INTERVAL = "sync_interval"
 CONF_DELETED_PROVIDERS = "deleted_providers"
 CONF_ADD_LIBRARY_ON_PLAY = "add_library_on_play"
-DB_SCHEMA_VERSION: Final[int] = 16
+DB_SCHEMA_VERSION: Final[int] = 17
 
 
 class MusicController(CoreController):
@@ -1510,6 +1511,31 @@ class MusicController(CoreController):
                             "search_sort_name": create_safe_string(db_row["sort_name"], True, True),
                         },
                     )
+
+        if prev_version <= 16:
+            # cleanup invalid release_date field in metadata
+            for table in (
+                DB_TABLE_TRACKS,
+                DB_TABLE_ALBUMS,
+                DB_TABLE_AUDIOBOOKS,
+                DB_TABLE_PODCASTS,
+            ):
+                async for db_row in self.database.iter_items(table):
+                    if '"release_date":null' in db_row["metadata"]:
+                        continue
+                    metadata = json_loads(db_row["metadata"])
+                    try:
+                        datetime.fromisoformat(metadata["release_date"])
+                    except (KeyError, ValueError):
+                        # this is not a valid date, so we set it to None
+                        metadata["release_date"] = None
+                        await self.database.update(
+                            table,
+                            {"item_id": db_row["item_id"]},
+                            {
+                                "metadata": serialize_to_json(metadata),
+                            },
+                        )
 
         # save changes
         await self.database.commit()
