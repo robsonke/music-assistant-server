@@ -11,7 +11,8 @@ RUN set -x \
         ca-certificates \
         jemalloc \
         tzdata \
-        # cifs utils and libnfs are needed for smb and nfs support (file provider)
+        dnscache \
+    # cifs utils and libnfs are needed for smb and nfs support (file provider)
         cifs-utils \
         libnfs \
         # openssl-dev is needed for airplay
