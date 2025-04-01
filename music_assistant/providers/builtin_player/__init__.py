@@ -284,7 +284,7 @@ class BuiltinPlayerProvider(PlayerProvider):
         if player_id is None:
             player_id = f"ma_{shortuuid.random(10).lower()}"
 
-        await self.unregister_player(player_id)
+        already_registered = player_id in self.instances
 
         player_features = {
             PlayerFeature.VOLUME_SET,
@@ -293,30 +293,40 @@ class BuiltinPlayerProvider(PlayerProvider):
             PlayerFeature.POWER,
         }
 
-        self.instances[player_id] = PlayerInstance(
-            unregister_cbs=[
-                self.mass.webserver.register_dynamic_route(
-                    f"/builtin_player/flow/{player_id}.mp3", self._serve_audio_stream
-                ),
-            ],
-            last_update=time(),
-        )
+        if not already_registered:
+            self.instances[player_id] = PlayerInstance(
+                unregister_cbs=[
+                    self.mass.webserver.register_dynamic_route(
+                        f"/builtin_player/flow/{player_id}.mp3", self._serve_audio_stream
+                    ),
+                ],
+                last_update=time(),
+            )
 
-        player = Player(
-            player_id=player_id,
-            provider=self.instance_id,
-            type=PlayerType.PLAYER,
-            name=player_name,
-            available=True,
-            power_control=PLAYER_CONTROL_NATIVE,
-            powered=False,
-            device_info=DeviceInfo(),
-            supported_features=player_features,
-            needs_poll=True,
-            poll_interval=POLL_INTERVAL,
-            hidden_by_default=True,
-            expose_to_ha_by_default=False,
-        )
+        player = self.mass.players.get(player_id)
+
+        if player is None:
+            player = Player(
+                player_id=player_id,
+                provider=self.instance_id,
+                type=PlayerType.PLAYER,
+                name=player_name,
+                available=True,
+                power_control=PLAYER_CONTROL_NATIVE,
+                powered=False,
+                device_info=DeviceInfo(),
+                supported_features=player_features,
+                needs_poll=True,
+                poll_interval=POLL_INTERVAL,
+                hidden_by_default=True,
+                expose_to_ha_by_default=False,
+                state=PlayerState.IDLE,
+            )
+        else:
+            player.state = PlayerState.IDLE
+            player.name = player_name
+            player.available = True
+            player.powered = False
 
         await self.mass.players.register_or_update(player)
         return player
@@ -332,6 +342,7 @@ class BuiltinPlayerProvider(PlayerProvider):
             player.available = False
             player.state = PlayerState.IDLE
             player.powered = False
+            self.mass.players.update(player.player_id)
 
     async def update_player_state(self, player_id: str, state: BuiltinPlayerState) -> bool:
         """Update current state of a player.
@@ -345,8 +356,9 @@ class BuiltinPlayerProvider(PlayerProvider):
         if not (player := self.mass.players.get(player_id)):
             return False
 
-        if not (instance := self.instances[player_id]):
-            raise RuntimeError("No instance found")
+        if player_id not in self.instances:
+            return False
+        instance = self.instances[player_id]
         instance.last_update = time()
 
         if not player.powered and state.powered:
