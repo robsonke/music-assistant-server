@@ -667,7 +667,7 @@ class SnapCastProvider(PlayerProvider):
     async def _get_or_create_stream(self, player_id: str, queue_id: str) -> Snapstream:
         """Create new stream on snapcast server (or return existing one)."""
         mass_queue = self.mass.player_queues.get(queue_id)
-        safe_name = create_safe_string(mass_queue.display_name, replace_spaces=True)
+        safe_name = create_safe_string(mass_queue.display_name, replace_space=True)
         stream_name = f"{MASS_STREAM_POSTFIX} - {safe_name}"
         # cancel any existing clear stream task
         self.mass.cancel_timer(f"snapcast_clear_stream_{player_id}")
