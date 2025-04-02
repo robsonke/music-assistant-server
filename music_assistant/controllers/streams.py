@@ -1227,8 +1227,8 @@ class StreamsController(CoreController):
             self.logger.debug("Skipping crossfade: next item is not a track")
             return False
         if (
-            queue_item.MediaType == MediaType.TRACK
-            and next_item.MediaType == MediaType.TRACK
+            queue_item.media_type == MediaType.TRACK
+            and next_item.media_type == MediaType.TRACK
             and queue_item.media_item
             and queue_item.media_item.album
             and next_item.media_item
