@@ -1511,7 +1511,7 @@ class PlayerQueuesController(CoreController):
             return
 
         task_id = f"preload_next_item_{queue_id}"
-        self.mass.call_later(5, _preload_streamdetails, task_id=task_id)
+        self.mass.call_later(30, _preload_streamdetails, task_id=task_id)
 
     async def _resolve_media_items(
         self, media_item: MediaItemTypeOrItemMapping, start_item: str | None = None
