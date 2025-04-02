@@ -446,7 +446,7 @@ class SnapCastProvider(PlayerProvider):
 
     async def remove_player(self, player_id: str) -> None:
         """Remove the client from the snapserver when it is deleted."""
-        self.mass.create_task(self._snapserver.delete_client(self._get_snapclient_id(player_id)))
+        self._snapserver.delete_client(self._get_snapclient_id(player_id))
 
     async def cmd_volume_set(self, player_id: str, volume_level: int) -> None:
         """Send VOLUME_SET command to given player."""
