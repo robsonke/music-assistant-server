@@ -1487,8 +1487,13 @@ class PlayerQueuesController(CoreController):
         If caching is enabled, this will also start filling the stream cache.
         If an error occurs, the item will be skipped and the next item will be loaded.
         """
+        queue = self._queues[queue_id]
 
         async def _preload_streamdetails() -> None:
+            self.logger.debug(
+                "Preloading next item for queue %s...",
+                queue.display_name,
+            )
             try:
                 await self.preload_next_queue_item(queue_id, item_id_in_buffer)
             except QueueEmpty:
@@ -1505,14 +1510,11 @@ class PlayerQueuesController(CoreController):
         if next_item.available and next_item.streamdetails:
             # streamdetails already loaded, nothing to do
             return
+        if not next_item.duration or next_item.duration <= 10:
+            return
 
-        # preload the streamdetails for the next item 60 seconds before the current item ends
-        # this should be enough time to load the stream details and start buffering
-        # NOTE: we use the duration of the current item, not the next item
-        netto_duration = current_item.duration - current_item.streamdetails.seek_position
-        delay = max(0, netto_duration - 60)
         task_id = f"preload_next_item_{queue_id}"
-        self.mass.call_later(delay, _preload_streamdetails, task_id=task_id)
+        self.mass.call_later(5, _preload_streamdetails, task_id=task_id)
 
     async def _resolve_media_items(
         self, media_item: MediaItemTypeOrItemMapping, start_item: str | None = None
