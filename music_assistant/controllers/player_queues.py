@@ -395,10 +395,6 @@ class PlayerQueuesController(CoreController):
         if not isinstance(media, list):
             media = [media]
 
-        # clear queue first if it was finished
-        if queue.current_index and queue.current_index >= (len(self._queue_items[queue_id]) - 1):
-            queue.current_index = None
-            self._queue_items[queue_id] = []
         # clear queue if needed
         if option == QueueOption.REPLACE:
             self.clear(queue_id)
@@ -473,7 +469,7 @@ class PlayerQueuesController(CoreController):
             cur_index = queue.index_in_buffer or queue.current_index or 0
         else:
             cur_index = queue.current_index or 0
-        insert_at_index = cur_index + 1 if self._queue_items.get(queue_id) else 0
+        insert_at_index = cur_index + 1
         # Radio modes are already shuffled in a pattern we would like to keep.
         shuffle = queue.shuffle_enabled and len(queue_items) > 1 and not radio_mode
 
@@ -524,7 +520,7 @@ class PlayerQueuesController(CoreController):
                 queue_items=queue_items,
                 insert_at_index=insert_at_index
                 if queue.shuffle_enabled
-                else len(self._queue_items[queue_id]),
+                else len(self._queue_items[queue_id]) + 1,
                 shuffle=queue.shuffle_enabled,
             )
             # handle edgecase, queue is empty and items are only added (not played)

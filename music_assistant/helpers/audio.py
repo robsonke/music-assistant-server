@@ -45,6 +45,7 @@ from music_assistant.constants import (
     VERBOSE_LOG_LEVEL,
 )
 from music_assistant.helpers.json import JSON_DECODE_EXCEPTIONS, json_loads
+from music_assistant.helpers.throttle_retry import BYPASS_THROTTLER
 from music_assistant.helpers.util import clean_stream_title, remove_file
 
 from .datetime import utc
@@ -528,6 +529,7 @@ async def get_stream_details(
     This is called just-in-time when a PlayerQueue wants a MediaItem to be played.
     Do not try to request streamdetails too much in advance as this is expiring data.
     """
+    BYPASS_THROTTLER.set(True)
     time_start = time.time()
     LOGGER.debug("Getting streamdetails for %s", queue_item.uri)
     if seek_position and (queue_item.media_type == MediaType.RADIO or not queue_item.duration):
