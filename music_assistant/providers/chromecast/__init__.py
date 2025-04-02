@@ -318,11 +318,6 @@ class ChromecastProvider(PlayerProvider):
         media_controller = castplayer.cc.media_controller
         queuedata["mediaSessionId"] = media_controller.status.media_session_id
         await asyncio.to_thread(media_controller.send_message, data=queuedata, inc_session_id=True)
-        self.logger.debug(
-            "Enqued next track (%s) to player %s",
-            media.title or media.uri,
-            castplayer.player.display_name,
-        )
 
     async def poll_player(self, player_id: str) -> None:
         """Poll player for state updates."""
