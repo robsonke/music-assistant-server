@@ -1014,14 +1014,20 @@ class PlayerQueuesController(CoreController):
     ) -> None:
         """Try to load the stream details for the given queue item."""
         queue_id = queue_item.queue_id
+        queue = self._queues[queue_id]
 
         # we use a contextvar to bypass the throttler for this asyncio task/context
         # this makes sure that playback has priority over other requests that may be
         # happening in the background
         BYPASS_THROTTLER.set(True)
 
+        self.logger.debug(
+            "loading (next) item for queue %s...",
+            queue.display_name,
+        )
+
         # work out if we are playing an album and if we should prefer album loudness
-        prefer_album_loudness = (
+        playing_album_tracks = (
             next_index is not None
             and (next_item := self.get_item(queue_id, next_index))
             and (
@@ -1075,7 +1081,7 @@ class PlayerQueuesController(CoreController):
             queue_item=queue_item,
             seek_position=seek_position,
             fade_in=fade_in,
-            prefer_album_loudness=prefer_album_loudness,
+            prefer_album_loudness=playing_album_tracks,
         )
         # allow stripping silence from the begin/end of the track if crossfade is enabled
         # this will allow for (much) smoother crossfades
@@ -1095,7 +1101,7 @@ class PlayerQueuesController(CoreController):
         self.logger.debug("PlayerQueue %s loaded item %s in buffer", queue.display_name, item_id)
         self.signal_update(queue_id)
         # preload next streamdetails
-        self._preload_next_item(queue_id, queue.index_in_buffer)
+        self._preload_next_item(queue_id, item_id)
 
     # Main queue manipulation methods
 
@@ -1483,13 +1489,8 @@ class PlayerQueuesController(CoreController):
         If caching is enabled, this will also start filling the stream cache.
         If an error occurs, the item will be skipped and the next item will be loaded.
         """
-        queue = self._queues[queue_id]
 
         async def _preload_streamdetails() -> None:
-            self.logger.debug(
-                "Preloading next item for queue %s...",
-                queue.display_name,
-            )
             try:
                 await self.preload_next_queue_item(queue_id, item_id_in_buffer)
             except QueueEmpty:
