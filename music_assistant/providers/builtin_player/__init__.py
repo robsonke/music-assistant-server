@@ -24,9 +24,11 @@ from typing import TYPE_CHECKING, cast
 import shortuuid
 from aiohttp import web
 from music_assistant_models.builtin_player import BuiltinPlayerEvent, BuiltinPlayerState
+from music_assistant_models.config_entries import ConfigEntry
 from music_assistant_models.constants import PLAYER_CONTROL_NATIVE
 from music_assistant_models.enums import (
     BuiltinPlayerEventType,
+    ConfigEntryType,
     ContentType,
     EventType,
     PlayerFeature,
@@ -39,12 +41,15 @@ from music_assistant_models.media_items import AudioFormat
 from music_assistant_models.player import DeviceInfo, Player, PlayerMedia
 
 from music_assistant.constants import (
-    CONF_ENTRY_CROSSFADE,
-    CONF_ENTRY_CROSSFADE_DURATION,
     CONF_ENTRY_FLOW_MODE_ENFORCED,
-    CONF_ENTRY_HTTP_PROFILE,
+    CONF_ENTRY_HTTP_PROFILE_HIDDEN,
+    CONF_ENTRY_OUTPUT_CODEC_HIDDEN,
+    CONF_MUTE_CONTROL,
+    CONF_POWER_CONTROL,
+    CONF_VOLUME_CONTROL,
     DEFAULT_PCM_FORMAT,
     DEFAULT_STREAM_HEADERS,
+    create_sample_rates_config_entry,
 )
 from music_assistant.helpers.audio import get_player_filter_params
 from music_assistant.helpers.ffmpeg import get_ffmpeg_stream
@@ -53,13 +58,13 @@ from music_assistant.models import ProviderInstanceType
 from music_assistant.models.player_provider import PlayerProvider
 
 if TYPE_CHECKING:
-    from music_assistant_models.config_entries import ConfigEntry, ConfigValueType, ProviderConfig
+    from music_assistant_models.config_entries import ConfigValueType, ProviderConfig
     from music_assistant_models.provider import ProviderManifest
 
 
 # If the player does not send an update within this time, it will be considered offline
-DURATION_UNTIL_TIMEOUT = 70
-POLL_INTERVAL = 10
+DURATION_UNTIL_TIMEOUT = 90  # 30 second extra headroom
+POLL_INTERVAL = 30
 
 
 async def setup(
@@ -133,12 +138,33 @@ class BuiltinPlayerProvider(PlayerProvider):
         """Return all (provider/player specific) Config Entries for the given player (if any)."""
         return (
             *await super().get_player_config_entries(player_id),
-            # For now only flow mode is supported
-            # TODO: also allow regular streams
             CONF_ENTRY_FLOW_MODE_ENFORCED,
-            CONF_ENTRY_CROSSFADE,
-            CONF_ENTRY_CROSSFADE_DURATION,
-            CONF_ENTRY_HTTP_PROFILE,
+            # Hide power/volume/mute control options since they are guaranteed to work
+            ConfigEntry(
+                key=CONF_POWER_CONTROL,
+                type=ConfigEntryType.STRING,
+                label=CONF_POWER_CONTROL,
+                default_value=PLAYER_CONTROL_NATIVE,
+                hidden=True,
+            ),
+            ConfigEntry(
+                key=CONF_VOLUME_CONTROL,
+                type=ConfigEntryType.STRING,
+                label=CONF_VOLUME_CONTROL,
+                default_value=PLAYER_CONTROL_NATIVE,
+                hidden=True,
+            ),
+            ConfigEntry(
+                key=CONF_MUTE_CONTROL,
+                type=ConfigEntryType.STRING,
+                label=CONF_MUTE_CONTROL,
+                default_value=PLAYER_CONTROL_NATIVE,
+                hidden=True,
+            ),
+            # These options don't do anything here
+            CONF_ENTRY_OUTPUT_CODEC_HIDDEN,
+            CONF_ENTRY_HTTP_PROFILE_HIDDEN,
+            create_sample_rates_config_entry(max_sample_rate=48000, max_bit_depth=16),
         )
 
     async def cmd_stop(self, player_id: str) -> None:
@@ -190,7 +216,7 @@ class BuiltinPlayerProvider(PlayerProvider):
     ) -> None:
         """Handle PLAY MEDIA on given player."""
         url = f"builtin_player/flow/{player_id}.mp3"
-        player = cast(Player, self.mass.players.get(player_id, raise_unavailable=True))
+        player = cast("Player", self.mass.players.get(player_id, raise_unavailable=True))
         player.current_media = media
 
         self.mass.signal_event(
@@ -258,7 +284,7 @@ class BuiltinPlayerProvider(PlayerProvider):
         if player_id is None:
             player_id = f"ma_{shortuuid.random(10).lower()}"
 
-        await self.unregister_player(player_id)
+        already_registered = player_id in self.instances
 
         player_features = {
             PlayerFeature.VOLUME_SET,
@@ -267,30 +293,40 @@ class BuiltinPlayerProvider(PlayerProvider):
             PlayerFeature.POWER,
         }
 
-        self.instances[player_id] = PlayerInstance(
-            unregister_cbs=[
-                self.mass.webserver.register_dynamic_route(
-                    f"/builtin_player/flow/{player_id}.mp3", self._serve_audio_stream
-                ),
-            ],
-            last_update=time(),
-        )
+        if not already_registered:
+            self.instances[player_id] = PlayerInstance(
+                unregister_cbs=[
+                    self.mass.webserver.register_dynamic_route(
+                        f"/builtin_player/flow/{player_id}.mp3", self._serve_audio_stream
+                    ),
+                ],
+                last_update=time(),
+            )
 
-        player = Player(
-            player_id=player_id,
-            provider=self.instance_id,
-            type=PlayerType.PLAYER,
-            name=player_name,
-            available=True,
-            power_control=PLAYER_CONTROL_NATIVE,
-            powered=False,
-            device_info=DeviceInfo(),
-            supported_features=player_features,
-            needs_poll=True,
-            poll_interval=POLL_INTERVAL,
-            hidden_by_default=True,
-            expose_to_ha_by_default=False,
-        )
+        player = self.mass.players.get(player_id)
+
+        if player is None:
+            player = Player(
+                player_id=player_id,
+                provider=self.instance_id,
+                type=PlayerType.PLAYER,
+                name=player_name,
+                available=True,
+                power_control=PLAYER_CONTROL_NATIVE,
+                powered=False,
+                device_info=DeviceInfo(),
+                supported_features=player_features,
+                needs_poll=True,
+                poll_interval=POLL_INTERVAL,
+                hidden_by_default=True,
+                expose_to_ha_by_default=False,
+                state=PlayerState.IDLE,
+            )
+        else:
+            player.state = PlayerState.IDLE
+            player.name = player_name
+            player.available = True
+            player.powered = False
 
         await self.mass.players.register_or_update(player)
         return player
@@ -306,23 +342,29 @@ class BuiltinPlayerProvider(PlayerProvider):
             player.available = False
             player.state = PlayerState.IDLE
             player.powered = False
+            self.mass.players.update(player.player_id)
 
-    async def update_player_state(self, player_id: str, state: BuiltinPlayerState) -> None:
+    async def update_player_state(self, player_id: str, state: BuiltinPlayerState) -> bool:
         """Update current state of a player.
 
         A player must periodically update the state of through this `builtin_player/update_state`
         API command.
-        """
-        player = cast(Player, self.mass.players.get(player_id, raise_unavailable=True))
 
-        if not (instance := self.instances[player_id]):
-            raise RuntimeError("No instance found")
+        Returns False in case the player already timed out or simply doesn't exist.
+        In that case, register the player first with `builtin_player/register`.
+        """
+        if not (player := self.mass.players.get(player_id)):
+            return False
+
+        if player_id not in self.instances:
+            return False
+        instance = self.instances[player_id]
         instance.last_update = time()
 
         if not player.powered and state.powered:
             # The player was powered off, so this state message is already out of date
             # Skip, it.
-            return
+            return True
 
         player.elapsed_time_last_updated = time()
         player.elapsed_time = float(state.position)
@@ -342,6 +384,7 @@ class BuiltinPlayerProvider(PlayerProvider):
             player.state = PlayerState.IDLE
 
         self.mass.players.update(player_id)
+        return True
 
     async def _serve_audio_stream(self, request: web.Request) -> web.StreamResponse:
         """Serve the flow stream audio to a player."""

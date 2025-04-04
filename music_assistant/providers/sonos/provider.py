@@ -11,7 +11,6 @@ import asyncio
 import time
 from typing import TYPE_CHECKING, Any
 
-import shortuuid
 from aiohttp import web
 from aiohttp.client_exceptions import ClientError
 from aiosonos.api.models import SonosCapability
@@ -23,16 +22,15 @@ from music_assistant_models.player import DeviceInfo, PlayerMedia
 from zeroconf import ServiceStateChange
 
 from music_assistant.constants import (
-    CONF_ENTRY_CROSSFADE,
-    CONF_ENTRY_CROSSFADE_DURATION_HIDDEN,
     CONF_ENTRY_FLOW_MODE_HIDDEN_DISABLED,
-    CONF_ENTRY_HTTP_PROFILE_DEFAULT_1,
+    CONF_ENTRY_HTTP_PROFILE_DEFAULT_2,
     CONF_ENTRY_MANUAL_DISCOVERY_IPS,
     CONF_ENTRY_OUTPUT_CODEC,
     MASS_LOGO_ONLINE,
     VERBOSE_LOG_LEVEL,
     create_sample_rates_config_entry,
 )
+from music_assistant.helpers.didl_lite import create_didl_metadata_str
 from music_assistant.helpers.tags import async_parse_tags
 from music_assistant.models.player_provider import PlayerProvider
 
@@ -147,11 +145,9 @@ class SonosPlayerProvider(PlayerProvider):
         """Return Config Entries for the given player."""
         base_entries = (
             *await super().get_player_config_entries(player_id),
-            CONF_ENTRY_CROSSFADE,
-            CONF_ENTRY_CROSSFADE_DURATION_HIDDEN,
             CONF_ENTRY_FLOW_MODE_HIDDEN_DISABLED,
             CONF_ENTRY_OUTPUT_CODEC,
-            CONF_ENTRY_HTTP_PROFILE_DEFAULT_1,
+            CONF_ENTRY_HTTP_PROFILE_DEFAULT_2,
             create_sample_rates_config_entry(
                 max_sample_rate=48000, max_bit_depth=24, safe_max_bit_depth=24, hidden=True
             ),
@@ -299,7 +295,6 @@ class SonosPlayerProvider(PlayerProvider):
     ) -> None:
         """Handle PLAY MEDIA on given player."""
         sonos_player = self.sonos_players[player_id]
-        sonos_player.queue_version = shortuuid.random(8)
         mass_player = self.mass.players.get(player_id)
         if sonos_player.client.player.is_passive:
             # this should be already handled by the player manager, but just in case...
@@ -330,25 +325,29 @@ class SonosPlayerProvider(PlayerProvider):
                 await sonos_player.client.player.group.set_group_members(group_childs)
             return
 
-        if media.queue_id and media.queue_id.startswith("ugp_"):
-            # Special UGP stream - handle with play URL
-            # enforce mp3 here because Sonos really does not support FLAC streams without duration
-            media.uri = media.uri.replace(".flac", ".mp3")
-            await sonos_player.client.player.group.play_stream_url(media.uri, None)
-            return
-
-        if media.queue_id and media.media_type != MediaType.PLUGIN_SOURCE:
+        if (
+            media.queue_id
+            and media.media_type
+            not in (
+                MediaType.PLUGIN_SOURCE,
+                MediaType.FLOW_STREAM,
+            )
+            and not media.queue_id.startswith("ugp_")
+        ):
+            # Regular Queue item playback
             # create a sonos cloud queue and load it
             cloud_queue_url = f"{self.mass.streams.base_url}/sonos_queue/v2.3/"
+            mass_queue = self.mass.player_queues.get(media.queue_id)
             await sonos_player.client.player.group.play_cloud_queue(
                 cloud_queue_url,
                 http_authorization=media.queue_id,
                 item_id=media.queue_item_id,
-                queue_version=sonos_player.queue_version,
+                queue_version=str(int(mass_queue.items_last_updated)),
             )
             self.mass.call_later(5, sonos_player.sync_play_modes, media.queue_id)
             return
 
+        # All other playback types
         # play a single uri/url
         # note that this most probably will only work for (long running) radio streams
         # enforce mp3 here because Sonos really does not support FLAC streams without duration
@@ -476,10 +475,11 @@ class SonosPlayerProvider(PlayerProvider):
         self.logger.log(VERBOSE_LOG_LEVEL, "Cloud Queue Version request: %s", request.query)
         sonos_playback_id = request.headers["X-Sonos-Playback-Id"]
         sonos_player_id = sonos_playback_id.split(":")[0]
-        if not (sonos_player := self.sonos_players.get(sonos_player_id)):
+        if not (self.sonos_players.get(sonos_player_id)):
             return web.Response(status=501)
+        mass_queue = self.mass.player_queues.get_active_queue(sonos_player_id)
         context_version = request.query.get("contextVersion") or "1"
-        queue_version = sonos_player.queue_version
+        queue_version = str(int(mass_queue.items_last_updated))
         result = {"contextVersion": context_version, "queueVersion": queue_version}
         return web.json_response(result)
 
@@ -494,11 +494,11 @@ class SonosPlayerProvider(PlayerProvider):
         sonos_player_id = sonos_playback_id.split(":")[0]
         if not (mass_queue := self.mass.player_queues.get_active_queue(sonos_player_id)):
             return web.Response(status=501)
-        if not (sonos_player := self.sonos_players.get(sonos_player_id)):
+        if not (self.sonos_players.get(sonos_player_id)):
             return web.Response(status=501)
         result = {
             "contextVersion": "1",
-            "queueVersion": sonos_player.queue_version,
+            "queueVersion": str(int(mass_queue.items_last_updated)),
             "container": {
                 "type": "playlist",
                 "name": "Music Assistant",
@@ -513,17 +513,18 @@ class SonosPlayerProvider(PlayerProvider):
             "reports": {
                 "sendUpdateAfterMillis": 1000,
                 "periodicIntervalMillis": 30000,
-                "sendPlaybackActions": False,
+                "sendPlaybackActions": True,
             },
             "playbackPolicies": {
                 "canSkip": True,
                 "limitedSkips": False,
                 "canSkipToItem": True,
                 "canSkipBack": True,
-                "canSeek": True,
+                # seek needs to be disabled because we dont properly support range requests
+                "canSeek": False,
                 "canRepeat": True,
                 "canRepeatOne": True,
-                "canCrossfade": True,
+                "canCrossfade": False,  # crossfading is handled by our streams controller
                 "canShuffle": True,
             },
         }
@@ -556,22 +557,33 @@ class SonosPlayerProvider(PlayerProvider):
 
     async def _parse_sonos_queue_item(self, queue_item: QueueItem) -> dict[str, Any]:
         """Parse a Sonos queue item to a PlayerMedia object."""
-        stream_url = await self.mass.streams.resolve_stream_url(queue_item)
+        queue = self.mass.player_queues.get(queue_item.queue_id)
+        assert queue  # for type checking
+        stream_url = await self.mass.streams.resolve_stream_url(queue.session_id, queue_item)
+        if streamdetails := queue_item.streamdetails:
+            duration = streamdetails.duration or queue_item.duration
+            if duration and streamdetails.seek_position:
+                duration -= streamdetails.seek_position
+        else:
+            duration = queue_item.duration
+
         return {
             "id": queue_item.queue_item_id,
             "deleted": not queue_item.available,
             "policies": {
-                "canCrossfade": True,
+                "canCrossfade": False,  # crossfading is handled by our streams controller
                 "canSkip": True,
                 "canSkipBack": True,
                 "canSkipToItem": True,
-                "canSeek": True,
+                # seek needs to be disabled because we dont properly support range requests
+                "canSeek": False,
                 "canRepeat": True,
                 "canRepeatOne": True,
+                "canShuffle": True,
             },
             "track": {
                 "type": "track",
-                "mediaUrl": await self.mass.streams.resolve_stream_url(queue_item),
+                "mediaUrl": stream_url,
                 "contentType": f"audio/{stream_url.split('.')[-1]}",
                 "service": {
                     "name": "Music Assistant",
@@ -585,7 +597,7 @@ class SonosPlayerProvider(PlayerProvider):
                 )
                 if queue_item.image
                 else None,
-                "durationMillis": queue_item.duration * 1000 if queue_item.duration else None,
+                "durationMillis": duration * 1000 if duration else None,
                 "artist": {
                     "name": artist_str,
                 }
@@ -598,13 +610,75 @@ class SonosPlayerProvider(PlayerProvider):
                 if queue_item.media_item
                 and (album := getattr(queue_item.media_item, "album", None))
                 else None,
-                "quality": {
-                    "bitDepth": queue_item.streamdetails.audio_format.bit_depth,
-                    "sampleRate": queue_item.streamdetails.audio_format.sample_rate,
-                    "codec": queue_item.streamdetails.audio_format.content_type.value,
-                    "lossless": queue_item.streamdetails.audio_format.content_type.is_lossless(),
-                }
-                if queue_item.streamdetails
-                else None,
             },
         }
+
+    async def _play_media_legacy(
+        self,
+        sonos_player: SonosPlayer,
+        media: PlayerMedia,
+    ) -> None:
+        """Handle PLAY MEDIA using the legacy upnp api."""
+        xml_data = f"""
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+                s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                        <InstanceID>0</InstanceID>
+                        <CurrentURI>{media.uri}</CurrentURI>
+                        <CurrentURIMetaData>{create_didl_metadata_str(media)}</CurrentURIMetaData>
+                    </u:SetAVTransportURI>
+                </s:Body>
+            </s:Envelope>
+            """
+        player_ip = sonos_player.mass_player.device_info.ip_address
+        async with self.mass.http_session.post(
+            f"http://{player_ip}:1400/MediaRenderer/AVTransport/Control",
+            headers={
+                "SOAPACTION": "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI",
+                "Content-Type": "text/xml; charset=utf-8",
+                "Connection": "close",
+            },
+            data=xml_data,
+        ) as resp:
+            if resp.status != 200:
+                raise PlayerCommandFailed(
+                    f"Failed to send command to Sonos player: {resp.status} {resp.reason}"
+                )
+            await self.cmd_play(sonos_player.player_id)
+            return
+
+    async def _enqueue_next_media_legacy(
+        self, sonos_player: SonosPlayer, media: PlayerMedia
+    ) -> None:
+        """Handle enqueuing of the next queue item using the legacy unpnp api."""
+        xml_data = f"""
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:SetNextAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                        <InstanceID>0</InstanceID>
+                        <NextURI>{media.uri}</NextURI>
+                        <NextURIMetaData>{create_didl_metadata_str(media)}</NextURIMetaData>
+                    </u:SetNextAVTransportURI>
+                </s:Body>
+            </s:Envelope>
+            """
+        player_ip = sonos_player.mass_player.device_info.ip_address
+        async with self.mass.http_session.post(
+            f"http://{player_ip}:1400/MediaRenderer/AVTransport/Control",
+            headers={
+                "SOAPACTION": "urn:schemas-upnp-org:service:AVTransport:1#SetNextAVTransportURI",
+                "Content-Type": "text/xml; charset=utf-8",
+                "Connection": "close",
+            },
+            data=xml_data,
+        ) as resp:
+            if resp.status != 200:
+                raise PlayerCommandFailed(
+                    f"Failed to send command to Sonos player: {resp.status} {resp.reason}"
+                )
+
+        # disable crossfade mode if needed
+        # crossfading is handled by our streams controller
+        if sonos_player.client.player.group.play_modes.crossfade:
+            await sonos_player.client.player.group.set_play_modes(crossfade=False)

@@ -45,6 +45,7 @@ from music_assistant.constants import (
     VERBOSE_LOG_LEVEL,
 )
 from music_assistant.helpers.json import JSON_DECODE_EXCEPTIONS, json_loads
+from music_assistant.helpers.throttle_retry import BYPASS_THROTTLER
 from music_assistant.helpers.util import clean_stream_title, remove_file
 
 from .datetime import utc
@@ -284,14 +285,22 @@ async def crossfade_pcm_parts(
     fade_in_part: bytes,
     fade_out_part: bytes,
     pcm_format: AudioFormat,
+    fade_out_pcm_format: AudioFormat | None = None,
 ) -> bytes:
     """Crossfade two chunks of pcm/raw audio using ffmpeg."""
-    sample_size = pcm_format.pcm_sample_size
+    if fade_out_pcm_format is None:
+        fade_out_pcm_format = pcm_format
+
     # calculate the fade_length from the smallest chunk
-    fade_length = min(len(fade_in_part), len(fade_out_part)) / sample_size
+    fade_length = min(
+        len(fade_in_part) / pcm_format.pcm_sample_size,
+        len(fade_out_part) / fade_out_pcm_format.pcm_sample_size,
+    )
+    # write the fade_out_part to a temporary file
     fadeout_filename = f"/tmp/{shortuuid.random(20)}.pcm"  # noqa: S108
     async with aiofiles.open(fadeout_filename, "wb") as outfile:
         await outfile.write(fade_out_part)
+
     args = [
         # generic args
         "ffmpeg",
@@ -300,30 +309,42 @@ async def crossfade_pcm_parts(
         "quiet",
         # fadeout part (as file)
         "-acodec",
-        pcm_format.content_type.name.lower(),
-        "-f",
-        pcm_format.content_type.value,
+        fade_out_pcm_format.content_type.name.lower(),
         "-ac",
-        str(pcm_format.channels),
+        str(fade_out_pcm_format.channels),
         "-ar",
-        str(pcm_format.sample_rate),
+        str(fade_out_pcm_format.sample_rate),
+        "-channel_layout",
+        "mono" if fade_out_pcm_format.channels == 1 else "stereo",
+        "-f",
+        fade_out_pcm_format.content_type.value,
         "-i",
         fadeout_filename,
         # fade_in part (stdin)
         "-acodec",
         pcm_format.content_type.name.lower(),
-        "-f",
-        pcm_format.content_type.value,
         "-ac",
         str(pcm_format.channels),
+        "-channel_layout",
+        "mono" if pcm_format.channels == 1 else "stereo",
         "-ar",
         str(pcm_format.sample_rate),
+        "-f",
+        pcm_format.content_type.value,
         "-i",
         "-",
         # filter args
         "-filter_complex",
         f"[0][1]acrossfade=d={fade_length}",
         # output args
+        "-acodec",
+        pcm_format.content_type.name.lower(),
+        "-ac",
+        str(pcm_format.channels),
+        "-channel_layout",
+        "mono" if pcm_format.channels == 1 else "stereo",
+        "-ar",
+        str(pcm_format.sample_rate),
         "-f",
         pcm_format.content_type.value,
         "-",
@@ -346,6 +367,16 @@ async def crossfade_pcm_parts(
         len(fade_in_part),
         len(fade_out_part),
     )
+    if fade_out_pcm_format.sample_rate != pcm_format.sample_rate:
+        # Edge case: the sample rates are different,
+        # we need to resample the fade_out part to the same sample rate as the fade_in part
+        async with FFMpeg(
+            audio_input="-",
+            input_format=fade_out_pcm_format,
+            output_format=pcm_format,
+        ) as ffmpeg:
+            res = await ffmpeg.communicate(fade_out_part)
+            return res[0] + fade_in_part
     return fade_out_part + fade_in_part
 
 
@@ -498,6 +529,7 @@ async def get_stream_details(
     This is called just-in-time when a PlayerQueue wants a MediaItem to be played.
     Do not try to request streamdetails too much in advance as this is expiring data.
     """
+    BYPASS_THROTTLER.set(True)
     time_start = time.time()
     LOGGER.debug("Getting streamdetails for %s", queue_item.uri)
     if seek_position and (queue_item.media_type == MediaType.RADIO or not queue_item.duration):
@@ -595,7 +627,7 @@ async def get_stream_details(
         if streamdetails.cache is None:
             streamdetails.cache = StreamCache(mass, streamdetails)
         else:
-            streamdetails.cache = cast(StreamCache, streamdetails.cache)
+            streamdetails.cache = cast("StreamCache", streamdetails.cache)
         # create cache (if needed) and wait until the cache is available
         await streamdetails.cache.create()
         LOGGER.debug(
@@ -676,7 +708,7 @@ async def get_media_stream(
     # work out audio source for these streamdetails
     stream_type = streamdetails.stream_type
     if stream_type == StreamType.CACHE:
-        cache = cast(StreamCache, streamdetails.cache)
+        cache = cast("StreamCache", streamdetails.cache)
         audio_source = await cache.get_audio_stream()
     elif stream_type == StreamType.MULTI_FILE:
         audio_source = get_multi_file_stream(mass, streamdetails)
@@ -845,7 +877,7 @@ async def get_media_stream(
 
         # release cache if needed
         if cache := streamdetails.cache:
-            cache = cast(StreamCache, streamdetails.cache)
+            cache = cast("StreamCache", streamdetails.cache)
             cache.release()
 
         # parse loudnorm data if we have that collected (and enabled)
@@ -1475,7 +1507,7 @@ async def analyze_loudness(
         "600",
     ]
     if streamdetails.stream_type == StreamType.CACHE:
-        cache = cast(StreamCache, streamdetails.cache)
+        cache = cast("StreamCache", streamdetails.cache)
         audio_source = await cache.get_audio_stream()
     elif streamdetails.stream_type == StreamType.MULTI_FILE:
         audio_source = get_multi_file_stream(mass, streamdetails)
@@ -1533,7 +1565,7 @@ async def analyze_loudness(
         finally:
             # release cache if needed
             if cache := streamdetails.cache:
-                cache = cast(StreamCache, streamdetails.cache)
+                cache = cast("StreamCache", streamdetails.cache)
                 cache.release()
 
 

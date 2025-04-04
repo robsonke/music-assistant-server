@@ -577,12 +577,25 @@ class HomeAssistantPlayers(PlayerProvider):
             if key == "media_content_id":
                 player.current_item_id = value
             if key == "group_members":
-                if value and value[0] == player.player_id:
-                    player.group_childs.set(value)
+                group_members: list[str] = (
+                    [
+                        # ignore integrations that incorrectly set the group members attribute
+                        # (e.g. linkplay)
+                        x
+                        for x in value
+                        if x.startswith("media_player.")
+                    ]
+                    if value
+                    else []
+                )
+                if group_members and group_members[0] == player.player_id:
+                    # first in the list is the group leader
+                    player.group_childs.set(group_members)
                     player.synced_to = None
-                elif value and value[0] != player.player_id:
+                elif group_members and group_members[0] != player.player_id:
+                    # this player is not the group leader
                     player.group_childs.clear()
-                    player.synced_to = value[0]
+                    player.synced_to = group_members[0]
                 else:
                     player.group_childs.clear()
                     player.synced_to = None
@@ -627,7 +640,7 @@ class HomeAssistantPlayers(PlayerProvider):
                     if "supported_formats" not in media_player_obj:
                         continue
                     for supported_format_obj in media_player_obj["supported_formats"]:
-                        result.append(cast(ESPHomeSupportedAudioFormat, supported_format_obj))
+                        result.append(cast("ESPHomeSupportedAudioFormat", supported_format_obj))
         except Exception as exc:
             self.logger.warning(
                 "Failed to fetch diagnostics for ESPHome player: %s",

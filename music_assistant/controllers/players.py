@@ -438,6 +438,7 @@ class PlayerController(CoreController):
             and powered
             and self.mass.config.get_raw_player_config_value(player_id, CONF_AUTO_PLAY, False)
             and player.active_source in (None, player_id)
+            and not player.announcement_in_progress
         ):
             await self.mass.player_queues.resume(player_id)
 
@@ -1217,7 +1218,7 @@ class PlayerController(CoreController):
         """Return PlayerProvider for given player."""
         player = self._players[player_id]
         player_provider = self.mass.get_provider(player.provider)
-        return cast(PlayerProvider, player_provider)
+        return cast("PlayerProvider", player_provider)
 
     def get_announcement_volume(self, player_id: str, volume_override: int | None) -> int | None:
         """Get the (player specific) volume for a announcement."""

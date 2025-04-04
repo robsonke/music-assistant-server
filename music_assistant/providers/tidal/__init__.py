@@ -139,7 +139,9 @@ async def get_config_entries(
     assert values is not None
 
     if action == CONF_ACTION_START_PKCE_LOGIN:
-        async with ManualAuthenticationHelper(mass, cast(str, values["session_id"])) as auth_helper:
+        async with ManualAuthenticationHelper(
+            mass, cast("str", values["session_id"])
+        ) as auth_helper:
             quality = str(values.get(CONF_QUALITY))
             base64_session = await TidalAuthManager.generate_auth_url(auth_helper, quality)
             values[CONF_TEMP_SESSION] = base64_session
@@ -189,8 +191,10 @@ async def get_config_entries(
                 label=CONF_QUALITY,
                 required=True,
                 hidden=True,
-                value=cast(str, values.get(CONF_QUALITY) or TidalQualityEnum.HI_RES.value),
-                default_value=cast(str, values.get(CONF_QUALITY) or TidalQualityEnum.HI_RES.value),
+                value=cast("str", values.get(CONF_QUALITY) or TidalQualityEnum.HI_RES.value),
+                default_value=cast(
+                    "str", values.get(CONF_QUALITY) or TidalQualityEnum.HI_RES.value
+                ),
             ),
         )
     else:
@@ -203,7 +207,7 @@ async def get_config_entries(
                 description="HIGH_LOSSLESS = 16bit 44.1kHz, HI_RES = Up to 24bit 192kHz",
                 options=[ConfigValueOption(x.value, x.name) for x in TidalQualityEnum],
                 default_value=TidalQualityEnum.HI_RES.value,
-                value=cast(str, values.get(CONF_QUALITY)) if values else None,
+                value=cast("str", values.get(CONF_QUALITY)) if values else None,
             ),
             ConfigEntry(
                 key=LABEL_START_PKCE_LOGIN,
@@ -224,7 +228,7 @@ async def get_config_entries(
                 action=CONF_ACTION_START_PKCE_LOGIN,
                 depends_on=CONF_QUALITY,
                 action_label="Starts the auth process via PKCE on Tidal.com",
-                value=cast(str, values.get(CONF_TEMP_SESSION)) if values else None,
+                value=cast("str", values.get(CONF_TEMP_SESSION)) if values else None,
                 hidden=action == CONF_ACTION_START_PKCE_LOGIN,
             ),
             ConfigEntry(
@@ -233,7 +237,7 @@ async def get_config_entries(
                 label="Temporary session for Tidal",
                 hidden=True,
                 required=False,
-                value=cast(str, values.get(CONF_TEMP_SESSION)) if values else None,
+                value=cast("str", values.get(CONF_TEMP_SESSION)) if values else None,
             ),
             ConfigEntry(
                 key=LABEL_OOPS_URL,
@@ -250,7 +254,7 @@ async def get_config_entries(
                 " Tidal.com and being redirected to a page that prominently displays"
                 " 'Oops' at the top.",
                 depends_on=CONF_ACTION_START_PKCE_LOGIN,
-                value=cast(str, values.get(CONF_OOPS_URL)) if values else None,
+                value=cast("str", values.get(CONF_OOPS_URL)) if values else None,
                 hidden=action != CONF_ACTION_START_PKCE_LOGIN,
             ),
             ConfigEntry(
@@ -283,7 +287,7 @@ async def get_config_entries(
             label="Authentication token for Tidal",
             description="You need to link Music Assistant to your Tidal account.",
             hidden=True,
-            value=cast(str, values.get(CONF_AUTH_TOKEN)) if values else None,
+            value=cast("str", values.get(CONF_AUTH_TOKEN)) if values else None,
         ),
         ConfigEntry(
             key=CONF_REFRESH_TOKEN,
@@ -291,14 +295,14 @@ async def get_config_entries(
             label="Refresh token for Tidal",
             description="You need to link Music Assistant to your Tidal account.",
             hidden=True,
-            value=cast(str, values.get(CONF_REFRESH_TOKEN)) if values else None,
+            value=cast("str", values.get(CONF_REFRESH_TOKEN)) if values else None,
         ),
         ConfigEntry(
             key=CONF_EXPIRY_TIME,
             type=ConfigEntryType.STRING,
             label="Expiry time of auth token for Tidal",
             hidden=True,
-            value=cast(str, values.get(CONF_EXPIRY_TIME)) if values else None,
+            value=cast("str", values.get(CONF_EXPIRY_TIME)) if values else None,
         ),
         ConfigEntry(
             key=CONF_USER_ID,
@@ -306,7 +310,7 @@ async def get_config_entries(
             label="Your Tidal User ID",
             description="This is your unique Tidal user ID.",
             hidden=True,
-            value=cast(str, values.get(CONF_USER_ID)) if values else None,
+            value=cast("str", values.get(CONF_USER_ID)) if values else None,
         ),
     )
 
@@ -489,14 +493,14 @@ class TidalProvider(MusicProvider):
             # Use data parameter for form-encoded data
             async with self.mass.http_session.post(url, data=data, **kwargs) as response:
                 return cast(
-                    dict[str, Any],
+                    "dict[str, Any]",
                     await self._handle_response(response, return_etag=False),
                 )
         else:
             # Use json parameter for JSON data (default)
             async with self.mass.http_session.post(url, json=data, **kwargs) as response:
                 return cast(
-                    dict[str, Any],
+                    "dict[str, Any]",
                     await self._handle_response(response, return_etag=False),
                 )
 
@@ -510,7 +514,7 @@ class TidalProvider(MusicProvider):
 
         # For DELETE requests with a body, we need to use json parameter
         async with self.mass.http_session.delete(url, json=data, **kwargs) as response:
-            return cast(dict[str, Any], await self._handle_response(response, return_etag=False))
+            return cast("dict[str, Any]", await self._handle_response(response, return_etag=False))
 
     async def _handle_response(
         self, response: ClientResponse, return_etag: bool = False
@@ -819,9 +823,39 @@ class TidalProvider(MusicProvider):
             mix_obj = {
                 "id": prov_mix_id,
                 "title": tidal_mix.get("title", "Unknown Mix"),
-                "images": tidal_mix.get("images", {}),
                 "updated": tidal_mix.get("lastUpdated", ""),
+                "images": {},  # Initialize empty images dict
             }
+
+            # Safely extract the mix object and its images from the header module
+            rows = tidal_mix.get("rows", [])
+            if rows and isinstance(rows, list) and len(rows) > 0:
+                first_row = rows[0]
+                if isinstance(first_row, dict):
+                    modules = first_row.get("modules", [])
+                    if modules and isinstance(modules, list) and len(modules) > 0:
+                        header_module = modules[0]
+                        if isinstance(header_module, dict):
+                            mix_data = header_module.get("mix", {})
+                            if isinstance(mix_data, dict):
+                                # Get images if they exist
+                                if "images" in mix_data and isinstance(mix_data["images"], dict):
+                                    mix_obj["images"] = mix_data["images"]
+                                    self.logger.debug(
+                                        "Successfully extracted mix images from header module"
+                                    )
+
+                                # Get subtitle if it exists
+                                subtitle = mix_data.get("subTitle")
+                                if subtitle:
+                                    mix_obj["subTitle"] = subtitle
+
+            # Safely check if we have useful images
+            images = mix_obj.get("images", {})
+            if images and any(key in images for key in ["MEDIUM", "LARGE", "SMALL"]):
+                self.logger.debug("Found images for mix %s: %s", prov_mix_id, list(images.keys()))
+            else:
+                self.logger.debug("No images found for mix %s", prov_mix_id)
 
             return self._parse_playlist(mix_obj, is_mix=True)
         except ResourceTemporarilyUnavailable:
@@ -1722,9 +1756,15 @@ class TidalProvider(MusicProvider):
             if "popularity" in playlist_obj:
                 playlist.metadata.popularity = playlist_obj.get("popularity", 0)
 
+        # Add the description from the subtitle for mixes
+        if is_mix:
+            subtitle = playlist_obj.get("subTitle")
+            if subtitle:
+                playlist.metadata.description = subtitle
+
         # Handle images differently based on type
         if is_mix:
-            if pictures := playlist_obj.get("images", {}).get("MEDIUM"):
+            if pictures := playlist_obj.get("images", {}).get("LARGE"):
                 image_url = pictures.get("url", "")
                 if image_url:
                     playlist.metadata.images = UniqueList(

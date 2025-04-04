@@ -28,19 +28,17 @@ from music_assistant_models.errors import SetupFailedError
 from music_assistant_models.media_items import AudioFormat
 from music_assistant_models.player import DeviceInfo, Player, PlayerMedia
 from snapcast.control import create_server
-from snapcast.control.client import Snapclient
 from zeroconf import NonUniqueNameException
 from zeroconf.asyncio import AsyncServiceInfo
 
 from music_assistant.constants import (
-    CONF_ENTRY_CROSSFADE,
-    CONF_ENTRY_CROSSFADE_DURATION,
     CONF_ENTRY_FLOW_MODE_ENFORCED,
     CONF_ENTRY_OUTPUT_CODEC_HIDDEN,
     DEFAULT_PCM_FORMAT,
     create_sample_rates_config_entry,
 )
 from music_assistant.helpers.audio import FFMpeg, get_ffmpeg_stream, get_player_filter_params
+from music_assistant.helpers.compare import create_safe_string
 from music_assistant.helpers.process import AsyncProcess, check_output
 from music_assistant.helpers.util import get_ip_pton
 from music_assistant.models.player_provider import PlayerProvider
@@ -48,6 +46,7 @@ from music_assistant.models.player_provider import PlayerProvider
 if TYPE_CHECKING:
     from music_assistant_models.config_entries import ProviderConfig
     from music_assistant_models.provider import ProviderManifest
+    from snapcast.control.client import Snapclient
     from snapcast.control.group import Snapgroup
     from snapcast.control.server import Snapserver
     from snapcast.control.stream import Snapstream
@@ -128,9 +127,11 @@ async def get_config_entries(
     """
     returncode, output = await check_output("snapserver", "-v")
     snapserver_version = int(output.decode().split(".")[1]) if returncode == 0 else -1
-    local_snapserver_present = snapserver_version >= 27
+    local_snapserver_present = snapserver_version >= 27 and snapserver_version != 30
     if returncode == 0 and not local_snapserver_present:
-        raise SetupFailedError("Invalid snapserver version")
+        raise SetupFailedError(
+            f"Invalid snapserver version. Expected >= 27 and != 30, got {snapserver_version}"
+        )
 
     return (
         ConfigEntry(
@@ -290,7 +291,7 @@ class SnapCastProvider(PlayerProvider):
     @property
     def supported_features(self) -> set[ProviderFeature]:
         """Return the features supported by this Provider."""
-        return {ProviderFeature.SYNC_PLAYERS}
+        return {ProviderFeature.SYNC_PLAYERS, ProviderFeature.REMOVE_PLAYER}
 
     async def handle_async_init(self) -> None:
         """Handle async initialization of the provider."""
@@ -386,7 +387,7 @@ class SnapCastProvider(PlayerProvider):
         player = self.mass.players.get(player_id, raise_unavailable=False)
         if not player:
             snap_client = cast(
-                Snapclient, self._snapserver.client(self._get_snapclient_id(player_id))
+                "Snapclient", self._snapserver.client(self._get_snapclient_id(player_id))
             )
             player = Player(
                 player_id=player_id,
@@ -439,11 +440,13 @@ class SnapCastProvider(PlayerProvider):
         return (
             *base_entries,
             CONF_ENTRY_FLOW_MODE_ENFORCED,
-            CONF_ENTRY_CROSSFADE,
-            CONF_ENTRY_CROSSFADE_DURATION,
             CONF_ENTRY_SAMPLE_RATES_SNAPCAST,
             CONF_ENTRY_OUTPUT_CODEC_HIDDEN,
         )
+
+    async def remove_player(self, player_id: str) -> None:
+        """Remove the client from the snapserver when it is deleted."""
+        await self._snapserver.delete_client(self._get_snapclient_id(player_id))
 
     async def cmd_volume_set(self, player_id: str, volume_level: int) -> None:
         """Send VOLUME_SET command to given player."""
@@ -670,7 +673,8 @@ class SnapCastProvider(PlayerProvider):
     async def _get_or_create_stream(self, player_id: str, queue_id: str) -> Snapstream:
         """Create new stream on snapcast server (or return existing one)."""
         mass_queue = self.mass.player_queues.get(queue_id)
-        stream_name = f"{MASS_STREAM_POSTFIX} - {mass_queue.display_name}"
+        safe_name = create_safe_string(mass_queue.display_name, replace_space=True)
+        stream_name = f"{MASS_STREAM_POSTFIX} - {safe_name}"
         # cancel any existing clear stream task
         self.mass.cancel_timer(f"snapcast_clear_stream_{player_id}")
 

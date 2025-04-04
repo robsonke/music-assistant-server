@@ -25,8 +25,6 @@ from zeroconf import ServiceStateChange
 from zeroconf.asyncio import AsyncServiceInfo
 
 from music_assistant.constants import (
-    CONF_ENTRY_CROSSFADE,
-    CONF_ENTRY_CROSSFADE_DURATION,
     CONF_ENTRY_DEPRECATED_EQ_BASS,
     CONF_ENTRY_DEPRECATED_EQ_MID,
     CONF_ENTRY_DEPRECATED_EQ_TREBLE,
@@ -65,8 +63,6 @@ CONF_IGNORE_VOLUME = "ignore_volume"
 
 PLAYER_CONFIG_ENTRIES = (
     CONF_ENTRY_FLOW_MODE_ENFORCED,
-    CONF_ENTRY_CROSSFADE,
-    CONF_ENTRY_CROSSFADE_DURATION,
     CONF_ENTRY_DEPRECATED_EQ_BASS,
     CONF_ENTRY_DEPRECATED_EQ_MID,
     CONF_ENTRY_DEPRECATED_EQ_TREBLE,
@@ -331,7 +327,7 @@ class AirplayProvider(PlayerProvider):
             )
         elif media.queue_id and media.queue_id.startswith("ugp_"):
             # special case: UGP stream
-            ugp_provider = cast(PlayerGroupProvider, self.mass.get_provider("player_group"))
+            ugp_provider = cast("PlayerGroupProvider", self.mass.get_provider("player_group"))
             ugp_stream = ugp_provider.ugp_streams[media.queue_id]
             input_format = ugp_stream.base_pcm_format
             audio_source = ugp_stream.subscribe_raw()

@@ -31,9 +31,6 @@ from soco import config as soco_config
 from soco.discovery import discover, scan_network
 
 from music_assistant.constants import (
-    CONF_CROSSFADE,
-    CONF_ENTRY_CROSSFADE,
-    CONF_ENTRY_CROSSFADE_DURATION_HIDDEN,
     CONF_ENTRY_FLOW_MODE_HIDDEN_DISABLED,
     CONF_ENTRY_HTTP_PROFILE_DEFAULT_1,
     CONF_ENTRY_MANUAL_DISCOVERY_IPS,
@@ -59,6 +56,8 @@ PLAYER_FEATURES = {
     PlayerFeature.VOLUME_MUTE,
     PlayerFeature.PAUSE,
     PlayerFeature.ENQUEUE,
+    PlayerFeature.GAPLESS_PLAYBACK,
+    PlayerFeature.GAPLESS_DIFFERENT_SAMPLERATE,
 }
 
 CONF_NETWORK_SCAN = "network_scan"
@@ -182,8 +181,6 @@ class SonosPlayerProvider(PlayerProvider):
         base_entries = await super().get_player_config_entries(player_id)
         return (
             *base_entries,
-            CONF_ENTRY_CROSSFADE,
-            CONF_ENTRY_CROSSFADE_DURATION_HIDDEN,
             CONF_ENTRY_SAMPLE_RATES,
             CONF_ENTRY_OUTPUT_CODEC,
             CONF_ENTRY_FLOW_MODE_HIDDEN_DISABLED,
@@ -303,14 +300,15 @@ class SonosPlayerProvider(PlayerProvider):
         """Handle enqueuing of the next queue item on the player."""
         sonos_player = self.sonosplayers[player_id]
         didl_metadata = create_didl_metadata(media)
-        # set crossfade according to player setting
-        crossfade = bool(await self.mass.config.get_player_config_value(player_id, CONF_CROSSFADE))
-        if sonos_player.crossfade != crossfade:
+
+        # disable crossfade mode if needed
+        # crossfading is handled by our streams controller
+        if sonos_player.crossfade:
 
             def set_crossfade() -> None:
                 try:
-                    sonos_player.soco.cross_fade = crossfade
-                    sonos_player.crossfade = crossfade
+                    sonos_player.soco.cross_fade = False
+                    sonos_player.crossfade = False
                 except Exception as err:
                     self.logger.warning(
                         "Unable to set crossfade for player %s: %s", sonos_player.zone_name, err
@@ -327,12 +325,6 @@ class SonosPlayerProvider(PlayerProvider):
         except Exception as err:
             self.logger.warning(
                 "Unable to enqueue next track on player: %s: %s", sonos_player.zone_name, err
-            )
-        else:
-            self.logger.debug(
-                "Enqued next track (%s) to player %s",
-                media.title or media.uri,
-                sonos_player.soco.player_name,
             )
 
     async def poll_player(self, player_id: str) -> None:
@@ -362,7 +354,7 @@ class SonosPlayerProvider(PlayerProvider):
 
         # Handle config option for manual IP's
         manual_ip_config = cast(
-            list[str], self.config.get_value(CONF_ENTRY_MANUAL_DISCOVERY_IPS.key)
+            "list[str]", self.config.get_value(CONF_ENTRY_MANUAL_DISCOVERY_IPS.key)
         )
         for ip_address in manual_ip_config:
             try:
@@ -475,7 +467,7 @@ class SonosPlayerProvider(PlayerProvider):
 async def discover_household_ids(mass: MusicAssistant, prefer_s1: bool = True) -> list[str]:
     """Discover the HouseHold ID of S1 speaker(s) the network."""
     if cache := await mass.cache.get("sonos_household_ids"):
-        return cast(list[str], cache)
+        return cast("list[str]", cache)
     household_ids: list[str] = []
 
     def get_all_sonos_ips() -> set[SoCo]:

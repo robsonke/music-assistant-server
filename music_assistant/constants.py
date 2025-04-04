@@ -297,16 +297,12 @@ CONF_ENTRY_CROSSFADE_FLOW_MODE_REQUIRED = ConfigEntry(
 CONF_ENTRY_CROSSFADE_DURATION = ConfigEntry(
     key=CONF_CROSSFADE_DURATION,
     type=ConfigEntryType.INTEGER,
-    range=(1, 10),
+    range=(1, 15),
     default_value=8,
     label="Crossfade duration",
     description="Duration in seconds of the crossfade between tracks (if enabled)",
     depends_on=CONF_CROSSFADE,
     category="advanced",
-)
-
-CONF_ENTRY_CROSSFADE_DURATION_HIDDEN = ConfigEntry.from_dict(
-    {**CONF_ENTRY_CROSSFADE_DURATION.to_dict(), "hidden": True}
 )
 
 CONF_ENTRY_HIDE_PLAYER_IN_UI = ConfigEntry(
@@ -353,8 +349,6 @@ CONF_ENTRY_EXPOSE_PLAYER_TO_HA = ConfigEntry(
     description="Expose this player to the Home Assistant integration. \n"
     "If disabled, this player will not be imported into Home Assistant.",
     category="advanced",
-    # NOTE: This setting is hidden for now, until the HA integration has been updated
-    hidden=True,
 )
 CONF_ENTRY_EXPOSE_PLAYER_TO_HA_DEFAULT_DISABLED = ConfigEntry.from_dict(
     {**CONF_ENTRY_EXPOSE_PLAYER_TO_HA.to_dict(), "default_value": False}
@@ -552,6 +546,10 @@ CONF_ENTRY_HTTP_PROFILE_DEFAULT_1 = ConfigEntry.from_dict(
     {**CONF_ENTRY_HTTP_PROFILE.to_dict(), "default_value": "chunked"}
 )
 
+CONF_ENTRY_HTTP_PROFILE_DEFAULT_2 = ConfigEntry.from_dict(
+    {**CONF_ENTRY_HTTP_PROFILE.to_dict(), "default_value": "no_content_length"}
+)
+
 CONF_ENTRY_HTTP_PROFILE_FORCED_1 = ConfigEntry.from_dict(
     {**CONF_ENTRY_HTTP_PROFILE_DEFAULT_1.to_dict(), "hidden": True}
 )
@@ -643,7 +641,7 @@ def create_sample_rates_config_entry(
     default_value: list[str] = []
 
     for option in CONF_ENTRY_SAMPLE_RATES.options:
-        option_value = cast(str, option.value)
+        option_value = cast("str", option.value)
         sample_rate_str, bit_depth_str = option_value.split(MULTI_VALUE_SPLITTER, 1)
         sample_rate = int(sample_rate_str)
         bit_depth = int(bit_depth_str)

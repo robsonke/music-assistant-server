@@ -14,7 +14,6 @@ from pyblu import Status, SyncStatus
 from zeroconf import ServiceStateChange
 
 from music_assistant.constants import (
-    CONF_ENTRY_CROSSFADE,
     CONF_ENTRY_ENABLE_ICY_METADATA,
     CONF_ENTRY_FLOW_MODE_ENFORCED,
     CONF_ENTRY_HTTP_PROFILE_FORCED_2,
@@ -249,7 +248,7 @@ class BluesoundPlayerProvider(PlayerProvider):
             if mass_player := self.mass.players.get(self.player_id):
                 cur_address = get_primary_ip_address_from_zeroconf(info)
                 cur_port = get_port_from_zeroconf(info)
-                if cur_address and cur_address != mass_player.device_info.address:
+                if cur_address and cur_address != mass_player.device_info.ip_address:
                     self.logger.debug(
                         "Address updated to %s for player %s", cur_address, mass_player.display_name
                     )
@@ -310,11 +309,10 @@ class BluesoundPlayerProvider(PlayerProvider):
         base_entries = await super().get_player_config_entries(self.player_id)
         if not self.bluos_players.get(player_id):
             # TODO fix player entries
-            return (*base_entries, CONF_ENTRY_CROSSFADE)
+            return (*base_entries,)
         return (
             *base_entries,
             CONF_ENTRY_HTTP_PROFILE_FORCED_2,
-            CONF_ENTRY_CROSSFADE,
             CONF_ENTRY_OUTPUT_CODEC,
             CONF_ENTRY_FLOW_MODE_ENFORCED,
             CONF_ENTRY_ENABLE_ICY_METADATA,
