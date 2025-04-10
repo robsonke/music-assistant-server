@@ -70,8 +70,7 @@ from music_assistant.helpers.util import (
     get_folder_size,
     get_free_space,
     get_free_space_percentage,
-    get_ip,
-    get_ips,
+    get_ip_addresses,
     select_free_port,
     try_parse_bool,
 )
@@ -154,10 +153,19 @@ class StreamsController(CoreController):
         values: dict[str, ConfigValueType] | None = None,
     ) -> tuple[ConfigEntry, ...]:
         """Return all Config Entries for this core module (if any)."""
-        default_ip = await get_ip()
-        all_ips = await get_ips()
+        ip_addresses = await get_ip_addresses()
         default_port = await select_free_port(8097, 9200)
         return (
+            ConfigEntry(
+                key=CONF_PUBLISH_IP,
+                type=ConfigEntryType.STRING,
+                default_value=ip_addresses[0],
+                label="Published IP address",
+                description="This IP address is communicated to players where to find this server."
+                "\nMake sure that this IP can be reached by players on the local network, "
+                "otherwise audio streaming will not work.",
+                required=False,
+            ),
             ConfigEntry(
                 key=CONF_BIND_PORT,
                 type=ConfigEntryType.INTEGER,
@@ -206,24 +214,10 @@ class StreamsController(CoreController):
                 category="audio",
             ),
             ConfigEntry(
-                key=CONF_PUBLISH_IP,
-                type=ConfigEntryType.STRING,
-                default_value=default_ip,
-                label="Published IP address",
-                description="This IP address is communicated to players where to find this server. "
-                "Override the default in advanced scenarios, such as multi NIC configurations. \n"
-                "Make sure that this server can be reached "
-                "on the given IP and TCP port by players on the local network. \n"
-                "This is an advanced setting that should normally "
-                "not be adjusted in regular setups.",
-                category="advanced",
-                required=False,
-            ),
-            ConfigEntry(
                 key=CONF_BIND_IP,
                 type=ConfigEntryType.STRING,
                 default_value="0.0.0.0",
-                options=[ConfigValueOption(x, x) for x in {"0.0.0.0", *all_ips}],
+                options=[ConfigValueOption(x, x) for x in {"0.0.0.0", *ip_addresses}],
                 label="Bind to IP/interface",
                 description="Start the stream server on this specific interface. \n"
                 "Use 0.0.0.0 to bind to all interfaces, which is the default. \n"
