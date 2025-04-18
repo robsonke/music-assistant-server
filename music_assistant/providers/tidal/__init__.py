@@ -782,16 +782,15 @@ class TidalProvider(MusicProvider):
         try:
             api_result = await self._get_data(f"tracks/{prov_track_id}")
             track_obj = self._extract_data(api_result)
-            track = self._parse_track(track_obj)
-            # Get additional details like lyrics if needed
+
+            lyrics = None
             with suppress(MediaNotFoundError):
                 api_result = await self._get_data(f"tracks/{prov_track_id}/lyrics")
                 lyrics_data = self._extract_data(api_result)
-
-                if lyrics_data and "text" in lyrics_data:
-                    track.metadata.lyrics = lyrics_data["text"]
-
-            return track
+                if lyrics_data:
+                    lyrics = lyrics_data
+            # Create track with lyrics data
+            return self._parse_track(track_obj, lyrics=lyrics)
         except ResourceTemporarilyUnavailable:
             raise
         except (ClientError, KeyError, ValueError) as err:
@@ -1714,6 +1713,7 @@ class TidalProvider(MusicProvider):
     def _parse_track(
         self,
         track_obj: dict[str, Any],
+        lyrics: dict[str, str] | None = None,
     ) -> Track:
         """Parse tidal track object to generic layout."""
         version = track_obj.get("version", "") or ""
@@ -1754,6 +1754,10 @@ class TidalProvider(MusicProvider):
         track.metadata.popularity = track_obj["popularity"]
         if "copyright" in track_obj:
             track.metadata.copyright = track_obj["copyright"]
+        if lyrics and "lyrics" in lyrics:
+            track.metadata.lyrics = lyrics["lyrics"]
+        if lyrics and "subtitles" in lyrics:
+            track.metadata.lrc_lyrics = lyrics["subtitles"]
         if track_obj["album"]:
             # Here we use an ItemMapping as Tidal returns
             # minimal data when getting an Album from a Track
@@ -1840,7 +1844,7 @@ class TidalProvider(MusicProvider):
 
         # Handle images differently based on type
         if is_mix:
-            if pictures := playlist_obj.get("images", {}).get("LARGE"):
+            if pictures := playlist_obj.get("images", {}).get("MEDIUM"):
                 image_url = pictures.get("url", "")
                 if image_url:
                     playlist.metadata.images = UniqueList(
