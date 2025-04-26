@@ -53,9 +53,8 @@ from music_assistant.constants import (
     SILENCE_FILE,
     VERBOSE_LOG_LEVEL,
 )
-from music_assistant.helpers.audio import CACHE_FILES_IN_USE
-from music_assistant.helpers.audio import LOGGER as AUDIO_LOGGER
 from music_assistant.helpers.audio import (
+    CACHE_FILES_IN_USE,
     crossfade_pcm_parts,
     get_chunksize,
     get_media_stream,
@@ -63,6 +62,7 @@ from music_assistant.helpers.audio import (
     get_silence,
     get_stream_details,
 )
+from music_assistant.helpers.audio import LOGGER as AUDIO_LOGGER
 from music_assistant.helpers.ffmpeg import LOGGER as FFMPEG_LOGGER
 from music_assistant.helpers.ffmpeg import check_ffmpeg_version, get_ffmpeg_stream
 from music_assistant.helpers.util import (
