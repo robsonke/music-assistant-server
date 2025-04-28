@@ -18,7 +18,7 @@ from aiosonos.utils import get_discovery_info
 from music_assistant_models.config_entries import ConfigEntry, PlayerConfig
 from music_assistant_models.enums import ConfigEntryType, MediaType, PlayerState, ProviderFeature
 from music_assistant_models.errors import PlayerCommandFailed
-from music_assistant_models.player import DeviceInfo, PlayerMedia
+from music_assistant_models.player import DeviceInfo, Player, PlayerMedia
 from zeroconf import ServiceStateChange
 
 from music_assistant.constants import (
@@ -145,11 +145,16 @@ class SonosPlayerProvider(PlayerProvider):
         """Return Config Entries for the given player."""
         base_entries = (
             *await super().get_player_config_entries(player_id),
-            CONF_ENTRY_FLOW_MODE_HIDDEN_DISABLED,
             CONF_ENTRY_OUTPUT_CODEC,
+            CONF_ENTRY_FLOW_MODE_HIDDEN_DISABLED,
             CONF_ENTRY_HTTP_PROFILE_DEFAULT_2,
             create_sample_rates_config_entry(
-                max_sample_rate=48000, max_bit_depth=24, safe_max_bit_depth=24, hidden=True
+                # set safe max bit depth to 16 bits because the older Sonos players
+                # do not support 24 bit playback (e.g. Play:1)
+                max_sample_rate=48000,
+                max_bit_depth=24,
+                safe_max_bit_depth=16,
+                hidden=False,
             ),
         )
         if not (sonos_player := self.sonos_players.get(player_id)):
@@ -168,17 +173,17 @@ class SonosPlayerProvider(PlayerProvider):
             ConfigEntry(
                 key=CONF_AIRPLAY_MODE,
                 type=ConfigEntryType.BOOLEAN,
-                label="Enable Airplay mode",
-                description="Almost all newer Sonos speakers have Airplay support. "
-                "If you have the Airplay provider enabled in Music Assistant, "
-                "your Sonos speaker will also be detected as a Airplay speaker, meaning "
-                "you can group them with other Airplay speakers.\n\n"
+                label="Enable AirPlay mode",
+                description="Almost all newer Sonos speakers have AirPlay support. "
+                "If you have the AirPlay provider enabled in Music Assistant, "
+                "your Sonos speaker will also be detected as a AirPlay speaker, meaning "
+                "you can group them with other AirPlay speakers.\n\n"
                 "By default, Music Assistant uses the Sonos protocol for playback but with this "
-                "feature enabled, it will use the Airplay protocol instead by redirecting "
-                "the playback related commands to the linked Airplay player in Music Assistant, "
-                "allowing you to mix and match Sonos speakers with Airplay speakers. \n\n"
-                "NOTE: You need to have the Airplay provider enabled as well as "
-                "the Airplay version of this player.",
+                "feature enabled, it will use the AirPlay protocol instead by redirecting "
+                "the playback related commands to the linked AirPlay player in Music Assistant, "
+                "allowing you to mix and match Sonos speakers with AirPlay speakers. \n\n"
+                "NOTE: You need to have the AirPlay provider enabled as well as "
+                "the AirPlay version of this player.",
                 required=False,
                 default_value=False,
                 depends_on="airplay_detected",
@@ -215,17 +220,6 @@ class SonosPlayerProvider(PlayerProvider):
     async def cmd_pause(self, player_id: str) -> None:
         """Send PAUSE command to given player."""
         if sonos_player := self.sonos_players[player_id]:
-            active_source = sonos_player.mass_player.active_source
-            if self.mass.player_queues.get(active_source):
-                # Sonos seems to be bugged when playing our queue tracks and we send pause,
-                # it can't resume the current track and simply aborts/skips it
-                # so we stop the player instead.
-                # https://github.com/music-assistant/support/issues/3758
-                # TODO: revisit this later and find out how this can be so bugged
-                # probably some strange DLNA flag or whatever needs to be set.
-                await self.cmd_stop(player_id)
-                return
-
             await sonos_player.cmd_pause()
 
     async def cmd_seek(self, player_id: str, position: int) -> None:
@@ -262,7 +256,7 @@ class SonosPlayerProvider(PlayerProvider):
         sonos_player = self.sonos_players[target_player]
         if airplay_player := sonos_player.get_linked_airplay_player(False):
             # if airplay mode is enabled, we could possibly receive child player id's that are
-            # not Sonos players, but Airplay players. We redirect those.
+            # not Sonos players, but AirPlay players. We redirect those.
             airplay_child_ids = [x for x in child_player_ids if x.startswith("ap")]
             child_player_ids = [x for x in child_player_ids if x not in airplay_child_ids]
             if airplay_child_ids:
@@ -305,35 +299,22 @@ class SonosPlayerProvider(PlayerProvider):
             raise PlayerCommandFailed(msg)
         # for now always reset the active session
         sonos_player.client.player.group.active_session_id = None
-        if airplay := sonos_player.get_linked_airplay_player(True):
+        if airplay_player := sonos_player.get_linked_airplay_player(True):
             # airplay mode is enabled, redirect the command
             self.logger.debug("Redirecting PLAY_MEDIA command to linked airplay player.")
-            mass_player.active_source = airplay.active_source
-            # Sonos has an annoying bug (for years already, and they dont seem to care),
-            # where it looses its sync childs when airplay playback is (re)started.
-            # Try to handle it here with this workaround.
-            group_childs = [
-                x for x in sonos_player.client.player.group.player_ids if x != player_id
-            ]
-            if group_childs:
-                await self.mass.players.cmd_ungroup_many(group_childs)
-            await self.mass.players.play_media(airplay.player_id, media)
-            if group_childs:
-                # ensure master player is first in the list
-                group_childs = [sonos_player.player_id, *group_childs]
-                await asyncio.sleep(5)
-                await sonos_player.client.player.group.set_group_members(group_childs)
+            await self._play_media_airplay(sonos_player, airplay_player, media)
             return
 
-        if (
-            media.queue_id
-            and media.media_type
-            not in (
-                MediaType.PLUGIN_SOURCE,
-                MediaType.FLOW_STREAM,
-            )
-            and not media.queue_id.startswith("ugp_")
-        ):
+        if media.media_type in (
+            MediaType.PLUGIN_SOURCE,
+            MediaType.FLOW_STREAM,
+        ) or media.queue_id.startswith("ugp_"):
+            # flow stream or plugin source playback
+            # always use the legacy (UPNP) playback method for this
+            await self._play_media_legacy(sonos_player, media)
+            return
+
+        if media.queue_id:
             # Regular Queue item playback
             # create a sonos cloud queue and load it
             cloud_queue_url = f"{self.mass.streams.base_url}/sonos_queue/v2.3/"
@@ -382,7 +363,6 @@ class SonosPlayerProvider(PlayerProvider):
             announcement.uri,
             sonos_player.mass_player.display_name,
         )
-        volume_level = self.mass.players.get_announcement_volume(player_id, volume_level)
         await sonos_player.client.player.play_audio_clip(
             announcement.uri, volume_level, name="Announcement"
         )
@@ -525,7 +505,7 @@ class SonosPlayerProvider(PlayerProvider):
                 "canRepeat": True,
                 "canRepeatOne": True,
                 "canCrossfade": False,  # crossfading is handled by our streams controller
-                "canShuffle": True,
+                "canShuffle": False,  # handled by our streams controller
             },
         }
         return web.json_response(result)
@@ -682,3 +662,35 @@ class SonosPlayerProvider(PlayerProvider):
         # crossfading is handled by our streams controller
         if sonos_player.client.player.group.play_modes.crossfade:
             await sonos_player.client.player.group.set_play_modes(crossfade=False)
+
+    async def _play_media_airplay(
+        self,
+        sonos_player: SonosPlayer,
+        airplay_player: Player,
+        media: PlayerMedia,
+    ) -> None:
+        """Handle PLAY MEDIA using the legacy upnp api."""
+        player_id = sonos_player.player_id
+        mass_player = self.mass.players.get(player_id)
+        mass_player.active_source = airplay_player.active_source
+        if (
+            airplay_player.state == PlayerState.PLAYING
+            and airplay_player.active_source == media.queue_id
+        ):
+            # if the airplay player is already playing,
+            # the stream will be reused so no need to do the whole grouping thing below
+            await self.mass.players.play_media(airplay_player.player_id, media)
+            return
+
+        # Sonos has an annoying bug (for years already, and they dont seem to care),
+        # where it looses its sync childs when airplay playback is (re)started.
+        # Try to handle it here with this workaround.
+        group_childs = [x for x in sonos_player.client.player.group.player_ids if x != player_id]
+        if group_childs:
+            await self.mass.players.cmd_ungroup_many(group_childs)
+        await self.mass.players.play_media(airplay_player.player_id, media)
+        if group_childs:
+            # ensure master player is first in the list
+            group_childs = [sonos_player.player_id, *group_childs]
+            await asyncio.sleep(5)
+            await sonos_player.client.player.group.set_group_members(group_childs)

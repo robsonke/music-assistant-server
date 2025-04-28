@@ -7,7 +7,7 @@ import functools
 import json
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from enum import StrEnum
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from aiohttp import ClientConnectionError, ClientResponse
@@ -17,11 +17,7 @@ from aiohttp.client_exceptions import (
     ClientPayloadError,
     ClientResponseError,
 )
-from music_assistant_models.config_entries import (
-    ConfigEntry,
-    ConfigValueOption,
-    ConfigValueType,
-)
+from music_assistant_models.config_entries import ConfigEntry, ConfigValueOption, ConfigValueType
 from music_assistant_models.enums import (
     AlbumType,
     ConfigEntryType,
@@ -44,6 +40,7 @@ from music_assistant_models.media_items import (
     ItemMapping,
     MediaItemImage,
     MediaItemType,
+    MediaItemTypeOrItemMapping,
     Playlist,
     ProviderMapping,
     RecommendationFolder,
@@ -53,14 +50,8 @@ from music_assistant_models.media_items import (
 )
 from music_assistant_models.streamdetails import StreamDetails
 
-from music_assistant.constants import (
-    CACHE_CATEGORY_DEFAULT,
-    CACHE_CATEGORY_RECOMMENDATIONS,
-)
-from music_assistant.helpers.throttle_retry import (
-    ThrottlerManager,
-    throttle_with_retries,
-)
+from music_assistant.constants import CACHE_CATEGORY_DEFAULT, CACHE_CATEGORY_RECOMMENDATIONS
+from music_assistant.helpers.throttle_retry import ThrottlerManager, throttle_with_retries
 from music_assistant.models.music_provider import MusicProvider
 
 from .auth_manager import ManualAuthenticationHelper, TidalAuthManager
@@ -107,13 +98,6 @@ RESOURCES_URL = "https://resources.tidal.com/images"
 DEFAULT_LIMIT = 50
 
 T = TypeVar("T")
-
-
-class TidalQualityEnum(StrEnum):
-    """Enum for Tidal Quality."""
-
-    HIGH_LOSSLESS = "LOSSLESS"  # "High - 16bit, 44.1kHz"
-    HI_RES = "HI_RES_LOSSLESS"  # "Max - Up to 24bit, 192kHz"
 
 
 async def setup(
@@ -188,13 +172,13 @@ async def get_config_entries(
             ConfigEntry(
                 key=CONF_QUALITY,
                 type=ConfigEntryType.STRING,
-                label=CONF_QUALITY,
-                required=True,
-                hidden=True,
-                value=cast("str", values.get(CONF_QUALITY) or TidalQualityEnum.HI_RES.value),
-                default_value=cast(
-                    "str", values.get(CONF_QUALITY) or TidalQualityEnum.HI_RES.value
-                ),
+                label="Quality setting for Tidal:",
+                description="High = 16bit 44.1kHz\n\nMax = Up to 24bit 192kHz",
+                options=[
+                    ConfigValueOption("High", "LOSSLESS"),
+                    ConfigValueOption("Max", "HI_RES_LOSSLESS"),
+                ],
+                default_value="HI_RES_LOSSLESS",
             ),
         )
     else:
@@ -204,10 +188,12 @@ async def get_config_entries(
                 type=ConfigEntryType.STRING,
                 label="Quality setting for Tidal:",
                 required=True,
-                description="HIGH_LOSSLESS = 16bit 44.1kHz, HI_RES = Up to 24bit 192kHz",
-                options=[ConfigValueOption(x.value, x.name) for x in TidalQualityEnum],
-                default_value=TidalQualityEnum.HI_RES.value,
-                value=cast("str", values.get(CONF_QUALITY)) if values else None,
+                description="High = 16bit 44.1kHz\n\nMax = Up to 24bit 192kHz",
+                options=[
+                    ConfigValueOption("High", "LOSSLESS"),
+                    ConfigValueOption("Max", "HI_RES_LOSSLESS"),
+                ],
+                default_value="HI_RES_LOSSLESS",
             ),
             ConfigEntry(
                 key=LABEL_START_PKCE_LOGIN,
@@ -482,8 +468,9 @@ class TidalProvider(MusicProvider):
         as_form: bool = False,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Post data to Tidal API using mass.http_session."""
-        url = f"{self.BASE_URL}/{endpoint}"
+        """Send POST data to Tidal API."""
+        base_url = kwargs.pop("base_url", self.BASE_URL)
+        url = f"{base_url}/{endpoint}"
 
         if as_form:
             # Set content type for form data
@@ -496,13 +483,45 @@ class TidalProvider(MusicProvider):
                     "dict[str, Any]",
                     await self._handle_response(response, return_etag=False),
                 )
-        else:
-            # Use json parameter for JSON data (default)
-            async with self.mass.http_session.post(url, json=data, **kwargs) as response:
+        # Use json parameter for JSON data (default)
+        async with self.mass.http_session.post(url, json=data, **kwargs) as response:
+            return cast(
+                "dict[str, Any]",
+                await self._handle_response(response, return_etag=False),
+            )
+
+    @prepare_api_request
+    async def _put_data(
+        self,
+        endpoint: str,
+        data: dict[str, Any] | None = None,
+        as_form: bool = False,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Send PUT data to Tidal API."""
+        # Use BASE_URL_V2 for PUT requests to mixes endpoints
+        base_url = kwargs.pop(
+            "base_url", self.BASE_URL_V2 if "mixes" in endpoint else self.BASE_URL
+        )
+        url = f"{base_url}/{endpoint}"
+
+        if as_form:
+            # Set content type for form data
+            headers = kwargs.get("headers", {})
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+            kwargs["headers"] = headers
+            # Use data parameter for form-encoded data
+            async with self.mass.http_session.put(url, data=data, **kwargs) as response:
                 return cast(
                     "dict[str, Any]",
                     await self._handle_response(response, return_etag=False),
                 )
+        # Use json parameter for JSON data (default)
+        async with self.mass.http_session.put(url, json=data, **kwargs) as response:
+            return cast(
+                "dict[str, Any]",
+                await self._handle_response(response, return_etag=False),
+            )
 
     @prepare_api_request
     async def _delete_data(
@@ -758,16 +777,15 @@ class TidalProvider(MusicProvider):
         try:
             api_result = await self._get_data(f"tracks/{prov_track_id}")
             track_obj = self._extract_data(api_result)
-            track = self._parse_track(track_obj)
-            # Get additional details like lyrics if needed
+
+            lyrics = None
             with suppress(MediaNotFoundError):
                 api_result = await self._get_data(f"tracks/{prov_track_id}/lyrics")
                 lyrics_data = self._extract_data(api_result)
-
-                if lyrics_data and "text" in lyrics_data:
-                    track.metadata.lyrics = lyrics_data["text"]
-
-            return track
+                if lyrics_data:
+                    lyrics = lyrics_data
+            # Create track with lyrics data
+            return self._parse_track(track_obj, lyrics=lyrics)
         except ResourceTemporarilyUnavailable:
             raise
         except (ClientError, KeyError, ValueError) as err:
@@ -866,7 +884,9 @@ class TidalProvider(MusicProvider):
     async def get_album_tracks(self, prov_album_id: str) -> list[Track]:
         """Get album tracks for given album id."""
         try:
-            api_result = await self._get_data(f"albums/{prov_album_id}/tracks")
+            api_result = await self._get_data(
+                f"albums/{prov_album_id}/tracks", params={"limit": 250}
+            )
             album_tracks = self._extract_data(api_result)
             return [self._parse_track(track_obj) for track_obj in album_tracks.get("items", [])]
         except ResourceTemporarilyUnavailable:
@@ -877,7 +897,9 @@ class TidalProvider(MusicProvider):
     async def get_artist_albums(self, prov_artist_id: str) -> list[Album]:
         """Get a list of all albums for the given artist."""
         try:
-            api_result = await self._get_data(f"artists/{prov_artist_id}/albums")
+            api_result = await self._get_data(
+                f"artists/{prov_artist_id}/albums", params={"limit": 250}
+            )
             artist_albums = self._extract_data(api_result)
             return [self._parse_album(album_obj) for album_obj in artist_albums.get("items", [])]
         except ResourceTemporarilyUnavailable:
@@ -994,102 +1016,24 @@ class TidalProvider(MusicProvider):
 
         results: list[RecommendationFolder] = []
 
+        # Pages to fetch
+        pages = ["pages/home", "pages/for_you"]
+
+        # Dictionary to track items by module title to combine duplicates
+        combined_modules: dict[str, list[Playlist | Album | Track | Artist]] = {}
+        module_content_types: dict[str, MediaType] = {}
+        module_page_names: dict[str, str] = {}
+
         try:
-            # Get page content
-            home_parser = await self.get_page_content("pages/home")
+            # Process pages and collect modules
+            await self._process_recommendation_pages(
+                pages, combined_modules, module_content_types, module_page_names
+            )
 
-            # Helper function to determine icon based on content type
-            def get_icon_for_type(media_type: MediaType) -> str:
-                if media_type == MediaType.PLAYLIST:
-                    return "mdi-playlist-music"
-                elif media_type == MediaType.ALBUM:
-                    return "mdi-album"
-                elif media_type == MediaType.TRACK:
-                    return "mdi-file-music"
-                elif media_type == MediaType.ARTIST:
-                    return "mdi-account-music"
-                return "mdi-motion-play"  # Default for mixed content
-
-            # Collection for all "Because you listened to" items
-            because_items = []
-            because_modules = set()
-
-            # Process all modules in a single pass
-            for module_info in home_parser._module_map:
-                try:
-                    module_title = module_info.get("title", "Unknown")
-
-                    # Skip modules without proper titles
-                    if not module_title or module_title == "Unknown":
-                        continue
-
-                    # Check if it's a "because you listened to" module
-                    pre_title = module_info.get("raw_data", {}).get("preTitle")
-                    is_because_module = pre_title and "because you listened to" in pre_title.lower()
-
-                    # Get module items
-                    module_items, content_type = home_parser.get_module_items(module_info)
-
-                    # Skip empty modules
-                    if not module_items:
-                        continue
-
-                    # Create folder description and icon
-                    subtitle = f"Tidal {content_type.name.lower()} collection"
-                    icon = get_icon_for_type(content_type)
-
-                    if is_because_module:
-                        # Add items to collective "Because you listened to" list
-                        because_items.extend(module_items)
-                        because_modules.add(module_title)
-                    else:
-                        # Create regular recommendation folder
-                        item_id = "".join(
-                            c
-                            for c in module_title.lower().replace(" ", "_").replace("-", "_")
-                            if c.isalnum() or c == "_"
-                        )
-
-                        folder = RecommendationFolder(
-                            item_id=item_id,
-                            name=module_title,
-                            provider=self.lookup_key,
-                            items=UniqueList(module_items),
-                            subtitle=subtitle,
-                            translation_key=item_id,
-                            icon=icon,
-                        )
-                        results.append(folder)
-
-                except (KeyError, ValueError, TypeError, AttributeError) as err:
-                    self.logger.warning(
-                        "Error processing module %s: %s",
-                        module_info.get("title", "Unknown"),
-                        err,
-                    )
-
-            # Create a single folder for all "Because you listened to" items if we have any
-            if because_items:
-                sources_summary = " - ".join(sorted(because_modules))
-                folder_subtitle = f"Recommendations based on: {sources_summary}"
-
-                because_folder = RecommendationFolder(
-                    item_id="because_you_listened_to",
-                    name=f"Because You Listened To: {sources_summary}",
-                    provider=self.lookup_key,
-                    items=UniqueList(because_items),
-                    subtitle=folder_subtitle,
-                    translation_key="because_you_listened_to",
-                    icon="mdi-headphones-box",
-                )
-                # Add as first item in results
-                results.insert(0, because_folder)
-
-                self.logger.debug(
-                    "Created 'Because You Listened To' folder with %d items from %d modules",
-                    len(because_items),
-                    len(because_modules),
-                )
+            # Create recommendation folders from combined modules
+            results = self._create_recommendation_folders(
+                combined_modules, module_content_types, module_page_names
+            )
 
             self.logger.debug("Created %d recommendation folders from Tidal", len(results))
 
@@ -1099,7 +1043,7 @@ class TidalProvider(MusicProvider):
                 results,
                 category=CACHE_CATEGORY_RECOMMENDATIONS,
                 base_key=self.lookup_key,
-                expiration=12 * 3600,
+                expiration=3600,
             )
 
         except (ClientError, ResourceTemporarilyUnavailable) as err:
@@ -1116,6 +1060,130 @@ class TidalProvider(MusicProvider):
         ) as err:
             # More specific network errors
             self.logger.warning("Network error in Tidal recommendations: %s", err)
+
+        return results
+
+    async def _process_recommendation_pages(
+        self,
+        pages: list[str],
+        combined_modules: dict[str, list[Playlist | Album | Track | Artist]],
+        module_content_types: dict[str, MediaType],
+        module_page_names: dict[str, str],
+    ) -> None:
+        """Process recommendation pages and collect modules."""
+        for page_path in pages:
+            # Get page content
+            page_parser = await self.get_page_content(page_path)
+            page_name = page_path.split("/")[-1].replace("_", " ").title()
+
+            # Process all modules in a single pass
+            await self._process_page_modules(
+                page_parser, page_name, combined_modules, module_content_types, module_page_names
+            )
+
+    async def _process_page_modules(
+        self,
+        page_parser: TidalPageParser,
+        page_name: str,
+        combined_modules: dict[str, list[Playlist | Album | Track | Artist]],
+        module_content_types: dict[str, MediaType],
+        module_page_names: dict[str, str],
+    ) -> None:
+        """Process all modules from a single page."""
+        for module_info in page_parser._module_map:
+            try:
+                module_title = module_info.get("title", "Unknown")
+
+                # Skip modules without proper titles
+                if not module_title or module_title == "Unknown":
+                    continue
+
+                # Get module items
+                module_items, content_type = page_parser.get_module_items(module_info)
+
+                # Skip empty modules
+                if not module_items:
+                    continue
+
+                # For all modules, collect items based on title
+                if module_title not in combined_modules:
+                    combined_modules[module_title] = []
+                    module_content_types[module_title] = content_type
+                    module_page_names[module_title] = page_name
+                else:
+                    # If we already have this module title, update the content type
+                    # if this module has more items than we already collected
+                    current_items_count = len(combined_modules[module_title])
+                    if len(module_items) > current_items_count:
+                        module_content_types[module_title] = content_type
+
+                # Add items to the combined collection
+                combined_modules[module_title].extend(module_items)
+
+            except (KeyError, ValueError, TypeError, AttributeError) as err:
+                self.logger.warning(
+                    "Error processing module %s from %s: %s",
+                    module_info.get("title", "Unknown"),
+                    page_name,
+                    err,
+                )
+
+    def _create_recommendation_folders(
+        self,
+        combined_modules: dict[str, list[Playlist | Album | Track | Artist]],
+        module_content_types: dict[str, MediaType],
+        module_page_names: dict[str, str],
+    ) -> list[RecommendationFolder]:
+        """Create recommendation folders from combined modules."""
+        results: list[RecommendationFolder] = []
+
+        # Helper function to determine icon based on content type
+        def get_icon_for_type(media_type: MediaType) -> str:
+            if media_type == MediaType.PLAYLIST:
+                return "mdi-playlist-music"
+            elif media_type == MediaType.ALBUM:
+                return "mdi-album"
+            elif media_type == MediaType.TRACK:
+                return "mdi-file-music"
+            elif media_type == MediaType.ARTIST:
+                return "mdi-account-music"
+            return "mdi-motion-play"  # Default for mixed content
+
+        for module_title, items in combined_modules.items():
+            # Use unique items list to prevent duplicates
+            unique_items = UniqueList(items)
+
+            # Create a sanitized unique ID
+            item_id = "".join(
+                c
+                for c in module_title.lower().replace(" ", "_").replace("-", "_")
+                if c.isalnum() or c == "_"
+            )
+
+            # Get content type and page source
+            content_type = module_content_types.get(module_title, MediaType.PLAYLIST)
+            page_name = module_page_names.get(module_title, "Tidal")
+
+            # Create folder with combined items
+            folder = RecommendationFolder(
+                item_id=item_id,
+                name=module_title,
+                provider=self.lookup_key,
+                items=UniqueList[MediaItemTypeOrItemMapping](unique_items),
+                subtitle=f"From {page_name} • {len(unique_items)} items",
+                translation_key=item_id,
+                icon=get_icon_for_type(content_type),
+            )
+            results.append(folder)
+
+            # Log a message if we combined multiple sources
+            if len(unique_items) < len(items):
+                self.logger.debug(
+                    "Combined %d items into %d unique items for '%s'",
+                    len(items),
+                    len(unique_items),
+                    module_title,
+                )
 
         return results
 
@@ -1300,11 +1368,12 @@ class TidalProvider(MusicProvider):
         try:
             # Get the page structure
             self.logger.debug("Fetching fresh page content for '%s'", page_path)
+            locale = self.mass.metadata.locale.replace("_", "-")
             api_result = await self._get_data(
                 page_path,
                 base_url="https://listen.tidal.com/v1",
                 params={
-                    "locale": "en_US",
+                    "locale": locale,
                     "deviceType": "BROWSER",
                     "countryCode": self.auth.country_code or "US",
                 },
@@ -1375,6 +1444,14 @@ class TidalProvider(MusicProvider):
     async def get_library_playlists(self) -> AsyncGenerator[Playlist, None]:
         """Retrieve all library playlists from the provider."""
         user_id = self.auth.user_id
+        mix_path = "favorites/mixes"
+
+        async for mix_item in self._paginate_api(
+            mix_path, item_key="items", base_url=self.BASE_URL_V2
+        ):
+            if mix_item and mix_item.get("id"):
+                yield self._parse_playlist(mix_item, is_mix=True)
+
         playlist_path = f"users/{user_id}/playlistsAndFavoritePlaylists"
 
         async for playlist_item in self._paginate_api(playlist_path, nested_key="playlist"):
@@ -1383,54 +1460,96 @@ class TidalProvider(MusicProvider):
 
     async def library_add(self, item: MediaItemType) -> bool:
         """Add item to library."""
-        endpoint = None
-        data = {}
+        endpoint, data, is_mix = self._get_library_endpoint_data(
+            item.item_id, item.media_type, "add"
+        )
 
-        if item.media_type == MediaType.ARTIST:
-            endpoint = "favorites/artists"
-            data = {"artistId": item.item_id}
-        elif item.media_type == MediaType.ALBUM:
-            endpoint = "favorites/albums"
-            data = {"albumId": item.item_id}
-        elif item.media_type == MediaType.TRACK:
-            endpoint = "favorites/tracks"
-            data = {"trackId": item.item_id}
-        elif item.media_type == MediaType.PLAYLIST:
-            endpoint = "favorites/playlists"
-            data = {"playlistId": item.item_id}
-        else:
+        if not endpoint:
             return False
 
-        endpoint = f"users/{self.auth.user_id}/{endpoint}"
-
-        await self._post_data(endpoint, data=data, as_form=True)
-        return True
+        try:
+            if is_mix:
+                await self._put_data(endpoint, data=data, as_form=True)
+            else:
+                endpoint = f"users/{self.auth.user_id}/{endpoint}"
+                await self._post_data(endpoint, data=data, as_form=True)
+            return True
+        except (ClientError, MediaNotFoundError, ResourceTemporarilyUnavailable) as err:
+            self.logger.warning(
+                "Failed to add %s:%s to library: %s", item.media_type, item.item_id, err
+            )
+            return False
 
     async def library_remove(self, prov_item_id: str, media_type: MediaType) -> bool:
         """Remove item from library."""
-        endpoint = None
+        endpoint, data, is_mix = self._get_library_endpoint_data(prov_item_id, media_type, "remove")
 
-        if media_type == MediaType.ARTIST:
-            endpoint = f"favorites/artists/{prov_item_id}"
-        elif media_type == MediaType.ALBUM:
-            endpoint = f"favorites/albums/{prov_item_id}"
-        elif media_type == MediaType.TRACK:
-            endpoint = f"favorites/tracks/{prov_item_id}"
-        elif media_type == MediaType.PLAYLIST:
-            endpoint = f"favorites/playlists/{prov_item_id}"
-        else:
+        if not endpoint:
             return False
 
-        endpoint = f"users/{self.auth.user_id}/{endpoint}"
-
         try:
-            await self._delete_data(endpoint)
+            if is_mix:
+                await self._put_data(endpoint, data=data, as_form=True)
+            else:
+                endpoint = f"users/{self.auth.user_id}/{endpoint}"
+                await self._delete_data(endpoint)
             return True
         except (ClientError, MediaNotFoundError, ResourceTemporarilyUnavailable) as err:
             self.logger.warning(
                 "Failed to remove %s:%s from library: %s", media_type, prov_item_id, err
             )
             return False
+
+    def _get_library_endpoint_data(
+        self, item_id: str, media_type: MediaType, operation: str
+    ) -> tuple[str | None, dict[str, Any], bool]:
+        """Get the endpoint, data, and mix flag for library operations."""
+        is_mix = False
+        data = {}
+
+        # Check if this is a mix by ID prefix
+        if media_type == MediaType.PLAYLIST and item_id.startswith("mix_"):
+            is_mix = True
+            # Strip prefix for API calls
+            mix_id = item_id[4:]  # Remove "mix_" prefix
+
+            if operation == "add":
+                endpoint = "favorites/mixes/add"
+                data = {"mixIds": mix_id, "onArtifactNotFound": "FAIL", "deviceType": "BROWSER"}
+            else:  # remove
+                endpoint = "favorites/mixes/remove"
+                data = {"mixIds": mix_id, "deviceType": "BROWSER"}
+            return endpoint, data, is_mix
+
+        # Regular items
+        if media_type == MediaType.ARTIST:
+            if operation == "add":
+                endpoint = "favorites/artists"
+                data = {"artistId": item_id}
+            else:
+                endpoint = f"favorites/artists/{item_id}"
+        elif media_type == MediaType.ALBUM:
+            if operation == "add":
+                endpoint = "favorites/albums"
+                data = {"albumId": item_id}
+            else:
+                endpoint = f"favorites/albums/{item_id}"
+        elif media_type == MediaType.TRACK:
+            if operation == "add":
+                endpoint = "favorites/tracks"
+                data = {"trackId": item_id}
+            else:
+                endpoint = f"favorites/tracks/{item_id}"
+        elif media_type == MediaType.PLAYLIST:
+            if operation == "add":
+                endpoint = "favorites/playlists"
+                data = {"uuids": item_id}
+            else:
+                endpoint = f"favorites/playlists/{item_id}"
+        else:
+            return None, {}, False
+
+        return endpoint, data, is_mix
 
     #
     # PLAYLIST MANAGEMENT
@@ -1601,12 +1720,13 @@ class TidalProvider(MusicProvider):
             album.album_type = AlbumType.SINGLE
 
         # Safely parse year
-        release_date = album_obj.get("releaseDate", "")
-        if release_date:
+        if release_date := album_obj.get("releaseDate", ""):
             try:
                 album.year = int(release_date.split("-")[0])
             except (ValueError, IndexError):
                 self.logger.debug("Invalid release date format: %s", release_date)
+            with suppress(ValueError):
+                album.metadata.release_date = datetime.fromisoformat(release_date)
 
         # Safely set metadata
         upc = album_obj.get("upc")
@@ -1638,6 +1758,7 @@ class TidalProvider(MusicProvider):
     def _parse_track(
         self,
         track_obj: dict[str, Any],
+        lyrics: dict[str, str] | None = None,
     ) -> Track:
         """Parse tidal track object to generic layout."""
         version = track_obj.get("version", "") or ""
@@ -1678,6 +1799,10 @@ class TidalProvider(MusicProvider):
         track.metadata.popularity = track_obj["popularity"]
         if "copyright" in track_obj:
             track.metadata.copyright = track_obj["copyright"]
+        if lyrics and "lyrics" in lyrics:
+            track.metadata.lyrics = lyrics["lyrics"]
+        if lyrics and "subtitles" in lyrics:
+            track.metadata.lrc_lyrics = lyrics["subtitles"]
         if track_obj["album"]:
             # Here we use an ItemMapping as Tidal returns
             # minimal data when getting an Album from a Track
@@ -1764,7 +1889,7 @@ class TidalProvider(MusicProvider):
 
         # Handle images differently based on type
         if is_mix:
-            if pictures := playlist_obj.get("images", {}).get("LARGE"):
+            if pictures := playlist_obj.get("images", {}).get("MEDIUM"):
                 image_url = pictures.get("url", "")
                 if image_url:
                     playlist.metadata.images = UniqueList(

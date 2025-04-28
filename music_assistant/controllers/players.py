@@ -126,12 +126,6 @@ class PlayerController(CoreController):
         self._poll_task: asyncio.Task | None = None
         self._player_throttlers: dict[str, Throttler] = {}
         self._announce_locks: dict[str, asyncio.Lock] = {}
-        # TEMP 2024-11-20: register some aliases for renamed commands
-        # remove after a few releases
-        self.mass.register_api_command("players/cmd/sync", self.cmd_group)
-        self.mass.register_api_command("players/cmd/unsync", self.cmd_ungroup)
-        self.mass.register_api_command("players/cmd/sync_many", self.cmd_group_many)
-        self.mass.register_api_command("players/cmd/unsync_many", self.cmd_ungroup_many)
 
     async def setup(self, config: CoreConfig) -> None:
         """Async initialize of module."""
@@ -243,9 +237,13 @@ class PlayerController(CoreController):
         - player_id: player_id of the player to handle the command.
         """
         player = self._get_player_with_redirect(player_id)
+        # Redirect to queue controller if it is active
+        if active_queue := self.mass.player_queues.get(player.active_source):
+            await self.mass.player_queues.pause(active_queue.queue_id)
+            return
         if PlayerFeature.PAUSE not in player.supported_features:
             # if player does not support pause, we need to send stop
-            self.logger.info(
+            self.logger.debug(
                 "Player %s does not support pause, using STOP instead",
                 player.display_name,
             )
@@ -253,28 +251,6 @@ class PlayerController(CoreController):
             return
         player_provider = self.get_player_provider(player.player_id)
         await player_provider.cmd_pause(player.player_id)
-
-        async def _watch_pause(_player_id: str) -> None:
-            player = self.get(_player_id, True)
-            count = 0
-            # wait for pause
-            while count < 5 and player.state == PlayerState.PLAYING:
-                count += 1
-                await asyncio.sleep(1)
-            # wait for unpause
-            if player.state != PlayerState.PAUSED:
-                return
-            count = 0
-            while count < 30 and player.state == PlayerState.PAUSED:
-                count += 1
-                await asyncio.sleep(1)
-            # if player is still paused when the limit is reached, send stop
-            if player.state == PlayerState.PAUSED:
-                await self.cmd_stop(_player_id)
-
-        # we auto stop a player from paused when its paused for 30 seconds
-        if not player.announcement_in_progress:
-            self.mass.create_task(_watch_pause(player_id))
 
     @api_command("players/cmd/play_pause")
     async def cmd_play_pause(self, player_id: str) -> None:
@@ -951,8 +927,14 @@ class PlayerController(CoreController):
         self.mass.config.create_default_player_config(
             player_id, player.provider, player.name, player.enabled_by_default
         )
-
+        # mark player as unavailable during the add process
+        player_available = player.available
+        player.available = False
         player.enabled = self.mass.config.get(f"{CONF_PLAYERS}/{player_id}/enabled", True)
+
+        # ignore disabled players
+        if not player.enabled:
+            return
 
         # register playerqueue for this player
         self.mass.create_task(self.mass.player_queues.on_player_register(player))
@@ -961,11 +943,6 @@ class PlayerController(CoreController):
         self._player_throttlers[player_id] = Throttler(1, 0.2)
 
         self._players[player_id] = player
-
-        # ignore disabled players
-        if not player.enabled:
-            return
-
         # ensure initial player state gets populated with values from config
         player_config = await self.mass.config.get_player_config(player_id)
         await self._set_player_state_from_config(player, player_config)
@@ -975,7 +952,7 @@ class PlayerController(CoreController):
             player_id,
             player.display_name,
         )
-
+        player.available = player_available
         self.mass.signal_event(EventType.PLAYER_ADDED, object_id=player.player_id, data=player)
         # always call update to fix special attributes like display name, group volume etc.
         self.update(player.player_id)
@@ -1352,7 +1329,7 @@ class PlayerController(CoreController):
         elif not player_disabled and resume_queue and resume_queue.state == PlayerState.PLAYING:
             # always stop first to ensure the player uses the new config
             await self.mass.player_queues.stop(resume_queue.queue_id)
-            self.mass.call_later(1, self.mass.player_queues.resume, resume_queue.queue_id)
+            self.mass.call_later(1, self.mass.player_queues.resume, resume_queue.queue_id, False)
         # check for group memberships that need to be updated
         if player_disabled and player.active_group and player_provider:
             # try to remove from the group
@@ -1372,7 +1349,7 @@ class PlayerController(CoreController):
         if player.state == PlayerState.PLAYING:
             self.logger.info("Restarting playback of Player %s after DSP change", player_id)
             # this will restart ffmpeg with the new settings
-            self.mass.call_later(0, self.mass.player_queues.resume, player.active_source)
+            self.mass.call_later(0, self.mass.player_queues.resume, player.active_source, False)
 
     def _get_player_with_redirect(self, player_id: str) -> Player:
         """Get player with check if playback related command should be redirected."""

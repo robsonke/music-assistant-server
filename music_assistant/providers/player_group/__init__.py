@@ -172,36 +172,7 @@ class PlayerGroupProvider(PlayerProvider):
     async def loaded_in_mass(self) -> None:
         """Call after the provider has been loaded."""
         await super().loaded_in_mass()
-        # temp: migrate old config entries
-        # remove this after MA 2.4 release
-        for player_config in await self.mass.config.get_player_configs(include_values=True):
-            # migrate provider set to domain to instance_id
-            if player_config.provider == self.manifest.domain:
-                self.mass.config.set_raw_player_config_value(
-                    player_config.player_id, "provider", self.instance_id
-                )
-                player_config.provider = self.instance_id
-            # migrate old syncgroup/UGP players to this provider
-            if player_config.values.get(CONF_GROUP_TYPE) is not None:
-                # already migrated
-                continue
-            if player_config.player_id.startswith(SYNCGROUP_PREFIX):
-                self.mass.config.set_raw_player_config_value(
-                    player_config.player_id, CONF_GROUP_TYPE, player_config.provider
-                )
-                player_config.provider = self.instance_id
-                self.mass.config.set_raw_player_config_value(
-                    player_config.player_id, "provider", self.instance_id
-                )
-            elif player_config.player_id.startswith(UNIVERSAL_PREFIX):
-                self.mass.config.set_raw_player_config_value(
-                    player_config.player_id, CONF_GROUP_TYPE, "universal"
-                )
-                player_config.provider = self.instance_id
-                self.mass.config.set_raw_player_config_value(
-                    player_config.player_id, "provider", self.instance_id
-                )
-
+        # register all existing group players
         await self._register_all_players()
         # listen for player added events so we can catch late joiners
         # (because a group depends on its childs to be available)
@@ -664,7 +635,7 @@ class PlayerGroupProvider(PlayerProvider):
         player_provider = self.mass.players.get_player_provider(child_player.player_id)
         if group_type == GROUP_TYPE_UNIVERSAL:
             if was_playing:
-                # stop playing the group player
+                # stop playing the child player that was unjoined from the UGP
                 await player_provider.cmd_stop(child_player.player_id)
             self._update_attributes(group_player)
             return
@@ -672,7 +643,7 @@ class PlayerGroupProvider(PlayerProvider):
         if child_player.group_childs:
             # this is the sync leader, unsync all its childs!
             # NOTE that some players/providers might support this in a less intrusive way
-            # but for now we just ungroup all childs to keep thinngs universal
+            # but for now we just ungroup all childs to keep things universal
             self.logger.info("Detected ungroup of sync leader, ungrouping all childs")
             async with TaskManager(self.mass) as tg:
                 for sync_child_id in child_player.group_childs:
@@ -755,6 +726,8 @@ class PlayerGroupProvider(PlayerProvider):
                 PlayerFeature.VOLUME_MUTE,
                 PlayerFeature.ENQUEUE,
                 PlayerFeature.MULTI_DEVICE_DSP,
+                PlayerFeature.GAPLESS_PLAYBACK,
+                PlayerFeature.GAPLESS_DIFFERENT_SAMPLERATE,
             ):
                 if all(feature in x.supported_features for x in player_provider.players):
                     player_features.add(feature)
@@ -915,7 +888,7 @@ class PlayerGroupProvider(PlayerProvider):
                 changed = True
         if changed and player.state == PlayerState.PLAYING:
             # Restart playback to ensure all members play the same content
-            await self.mass.player_queues.resume(player.player_id)
+            await self.mass.player_queues.resume(player.player_id, False)
 
     async def _serve_ugp_stream(self, request: web.Request) -> web.Response:
         """Serve the UGP (multi-client) flow stream audio to a player."""

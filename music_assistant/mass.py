@@ -19,7 +19,13 @@ from music_assistant_models.errors import MusicAssistantError, SetupFailedError
 from music_assistant_models.event import MassEvent
 from music_assistant_models.helpers import set_global_cache_values
 from music_assistant_models.provider import ProviderManifest
-from zeroconf import IPVersion, NonUniqueNameException, ServiceStateChange, Zeroconf
+from zeroconf import (
+    InterfaceChoice,
+    IPVersion,
+    NonUniqueNameException,
+    ServiceStateChange,
+    Zeroconf,
+)
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo, AsyncZeroconf
 
 from music_assistant.constants import (
@@ -129,7 +135,7 @@ class MusicAssistant:
         self.version = await get_package_version("music_assistant") or "0.0.0"
         # create shared zeroconf instance
         # TODO: enumerate interfaces and enable IPv6 support
-        self.aiozc = AsyncZeroconf(ip_version=IPVersion.V4Only)
+        self.aiozc = AsyncZeroconf(ip_version=IPVersion.V4Only, interfaces=InterfaceChoice.Default)
         # create shared aiohttp ClientSession
         self.http_session = ClientSession(
             loop=self.loop,
@@ -672,13 +678,6 @@ class MusicAssistant:
 
         # run async setup
         await provider.handle_async_init()
-
-        # TEMP workaround
-        # cleanup wrong name config value (set to provider name)
-        # remove after 2.4 release
-        if conf.name == prov_manifest.name:
-            self.config.set_raw_provider_config_value(provider.instance_id, "name", None)
-            provider.config.name = None
 
         # if we reach this point, the provider loaded successfully
         self._providers[provider.instance_id] = provider
