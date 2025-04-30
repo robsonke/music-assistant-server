@@ -129,7 +129,7 @@ async def get_config_entries(
     if action == "CONF_ACTION_AUTH":
         # TODO: check the developer token is valid otherwise user is going to have bad experience
         async with AuthenticationHelper(mass, values["session_id"]) as auth_helper:
-            flow_base_url = f"/apple_music_auth/{values['session_id']}/"
+            flow_base_url = f"apple_music_auth/{values['session_id']}/"
             flow_timeout = 600
             parent_file_path = pathlib.Path(__file__).parent.resolve()
 
@@ -149,12 +149,12 @@ async def get_config_entries(
                 return_html += f"const mass_buid='{mass.version}';"
                 return web.Response(body=return_html, headers={"content-type": "text/javascript"})
 
-            mass.webserver.register_dynamic_route(flow_base_url + "index.html", serve_mk_auth_page)
-            mass.webserver.register_dynamic_route(flow_base_url + "index.css", serve_mk_auth_css)
-            mass.webserver.register_dynamic_route(flow_base_url + "index.js", serve_mk_glue)
+            mass.webserver.register_dynamic_route(f"/{flow_base_url}index.html", serve_mk_auth_page)
+            mass.webserver.register_dynamic_route(f"/{flow_base_url}index.css", serve_mk_auth_css)
+            mass.webserver.register_dynamic_route(f"/{flow_base_url}index.js", serve_mk_glue)
             try:
                 values[CONF_MUSIC_USER_TOKEN] = (
-                    await auth_helper.authenticate(flow_base_url + "index.html", flow_timeout)
+                    await auth_helper.authenticate(f"{flow_base_url}index.html", flow_timeout)
                 )["music-user-token"]
             except KeyError:
                 # no music-user-token URL param was found so user probably cancelled the auth
@@ -162,9 +162,9 @@ async def get_config_entries(
             except Exception as error:
                 raise LoginFailed(f"Failed to authenticate with Apple '{error}'.")
             finally:
-                mass.webserver.unregister_dynamic_route(flow_base_url + "index.html")
-                mass.webserver.unregister_dynamic_route(flow_base_url + "index.css")
-                mass.webserver.unregister_dynamic_route(flow_base_url + "index.js")
+                mass.webserver.unregister_dynamic_route(f"/{flow_base_url}index.html")
+                mass.webserver.unregister_dynamic_route(f"/{flow_base_url}index.css")
+                mass.webserver.unregister_dynamic_route(f"/{flow_base_url}index.js")
 
     # ruff: noqa: ARG001
     return (
