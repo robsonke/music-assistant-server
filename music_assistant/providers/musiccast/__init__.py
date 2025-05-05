@@ -202,10 +202,11 @@ class MusicCast(PlayerProvider):
                     ConfigEntry(
                         key=CONF_PLAYER_SWITCH_SOURCE_NON_NET,
                         type=ConfigEntryType.STRING,
-                        label="Switch to this non-streaming source when leaving a group.",
+                        label="Switch to this non-net source when leaving a group.",
                         default_value=PLAYER_MAP_ZONE_SWITCH[zone_player.zone_name],
-                        description="The zone will switch to this non-streaming source when "
-                        " leaving a group."
+                        description="The zone will switch to this source when "
+                        " leaving a group. The source must be one which does not require "
+                        " a network connection. "
                         " The available sources can be seen when selecting 'Select source' "
                         " from the menu in the now playing view."
                         " This entry is case sensitive.",
